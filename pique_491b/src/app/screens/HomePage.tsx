@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Modal, Image } from 'react-native';
 import { Search, Menu, MessageCircle, Plus, Bell } from 'lucide-react-native';
 import { NavigationBar } from '@/components/NavigationBar';
-import { EventCard, SocialActivityCard, SearchOverlay, NotificationsModal } from '@/components/Placeholder';
+import { EventCard, SocialActivityCard, SearchOverlay } from '@/components/Placeholder';
+import { NotificationsModal } from '@/components/NotificationsModal';
 
 // Placeholder data — replace with real mockData imports when ready
 const mockEvents: any[] = [];
