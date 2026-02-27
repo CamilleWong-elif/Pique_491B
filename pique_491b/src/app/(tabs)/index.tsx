@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { CommunityPage } from '../screens/CommunityPage';
+import { CreateEventPage } from '../screens/CreateEventPage';
 import { ExplorePage } from '../screens/ExplorePage';
 import { HomePage } from '../screens/HomePage';
 import { LoginScreen } from '../screens/LoginScreen';
+import { MessagingScreen } from '../screens/MessagingScreen';
 import { ProfilePage } from '../screens/ProfilePage';
 import { SignUpScreen } from '../screens/SignUpScreen';
 import { SplashScreen } from '../screens/SplashScreen';
@@ -47,6 +49,7 @@ export default function App() {
         <HomePage
           onNavigate={handleNavigate}
           onSignOut={() => setIsAuthenticated(false)}
+          onOpenMessages={() => handleNavigate('messages')}
         />
       )}
       {/* Explore page upon action */}
@@ -58,6 +61,12 @@ export default function App() {
       )}
       {!isLoading && isAuthenticated && currentPage === 'profile' && (
         <ProfilePage onNavigate={handleNavigate} />
+      )}
+      {!isLoading && isAuthenticated && currentPage === 'create' && (
+        <CreateEventPage onNavigate={handleNavigate} />
+      )}
+      {!isLoading && isAuthenticated && currentPage === 'messages' && (
+        <MessagingScreen onBack={() => handleNavigate('home')} />
       )}
     </View>
   );
