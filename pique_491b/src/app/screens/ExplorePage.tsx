@@ -306,6 +306,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     paddingHorizontal: 21,
+    paddingVertical: 60,
     zIndex: 30,
   },
   searchRow: {
@@ -328,7 +329,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#d1d5db',
     borderRadius: 5,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 5,
   },
   searchInput: {
     fontSize: 11,
