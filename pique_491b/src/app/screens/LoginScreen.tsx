@@ -1,6 +1,7 @@
+import { Eye, EyeOff, Lock, Mail } from 'lucide-react-native';
 import { useState } from 'react';
-import { View, Dimensions, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image } from 'react-native';
-import { Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
+import { Dimensions, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Rect } from 'react-native-svg';
 
 const logo = require('@/assets/images/temp_logo.png');
@@ -16,7 +17,8 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-
+  const insets = useSafeAreaInsets();
+  
   const handleSubmit = () => {
     onLogin();
   };
@@ -29,7 +31,7 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
   return (
     <ScrollView contentContainerStyle={styles.scrollContainer}>
       {/* Header with Logo */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top }]}>
         <Image
           source={logo}
           style={styles.logo}
@@ -155,7 +157,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
   },
   header: {
-    paddingTop: 80,
     paddingBottom: 48,
     paddingHorizontal: 32,
     alignItems: 'center',
