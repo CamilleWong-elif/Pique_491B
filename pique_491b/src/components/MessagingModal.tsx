@@ -8,27 +8,10 @@
 // - You can replace mock data imports with your real data
 // - If you already have BottomNavigation in RN, plug it in; otherwise remove that block.
 
+import { ArrowLeft, Image as ImageIcon, MoreVertical, Send, X, } from "lucide-react-native";
 import React, { useMemo, useState } from "react";
-import {
-  Modal,
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Pressable,
-  FlatList,
-  Image,
-  TextInput,
-  Platform,
-  ScrollView,
-} from "react-native";
-import {
-  X,
-  ArrowLeft,
-  Send,
-  Image as ImageIcon,
-  MoreVertical,
-} from "lucide-react-native";
+import { FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // ---- Types (adjust to match your app) ----
 export interface Event {
@@ -113,18 +96,8 @@ interface MessagingModalProps {
   }) => React.ReactNode;
 }
 
-export function MessagingModal({
-  isOpen,
-  onClose,
-  onBack,
-  onNavigate,
-  conversations,
-  shareEvents,
-  sharePosts,
-  renderChatSettings,
-}: MessagingModalProps) {
-  const [selectedConversation, setSelectedConversation] =
-    useState<Conversation | null>(null);
+export function MessagingModal({ isOpen, onClose, onBack, onNavigate, conversations, shareEvents, sharePosts, renderChatSettings, }: MessagingModalProps) {
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [messageText, setMessageText] = useState("");
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
@@ -134,6 +107,7 @@ export function MessagingModal({
   const [isBlocked, setIsBlocked] = useState(false);
   const [muteEndTime, setMuteEndTime] = useState<Date | null>(null);
   const [chatTheme, setChatTheme] = useState<ThemeKey>("default");
+  const insets = useSafeAreaInsets();
 
   const theme = useMemo(() => {
     const themes: Record<
@@ -269,7 +243,7 @@ export function MessagingModal({
   const Header = () => {
     if (!selectedConversation) {
       return (
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: 16}]}>
           <TouchableOpacity onPress={onBack} style={styles.headerIconBtn}>
             <ArrowLeft size={20} color="#374151" />
           </TouchableOpacity>
@@ -280,7 +254,7 @@ export function MessagingModal({
     }
 
     return (
-      <View style={styles.header}>
+      <View style={[styles.header, {paddingTop: 16}]}>
         <TouchableOpacity
           onPress={() => setSelectedConversation(null)}
           style={styles.headerIconBtn}
@@ -713,7 +687,6 @@ const styles = StyleSheet.create({
   },
 
   header: {
-    paddingTop: 52,
     paddingHorizontal: 16,
     paddingBottom: 12,
     borderBottomWidth: 1,
@@ -952,7 +925,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#E5E7EB",
     backgroundColor: "#fff",
-    paddingBottom: Platform.OS === "ios" ? 18 : 12,
+    paddingBottom: 12,
   },
   replyPreview: {
     paddingHorizontal: 16,
@@ -1003,7 +976,7 @@ const styles = StyleSheet.create({
     borderColor: "#D1D5DB",
     borderRadius: 999,
     paddingHorizontal: 14,
-    paddingVertical: Platform.OS === "ios" ? 10 : 8,
+    paddingVertical: 8,
     fontSize: 14,
     color: "#111827",
     backgroundColor: "#fff",
