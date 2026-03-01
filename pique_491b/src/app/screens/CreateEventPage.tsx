@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, Modal, Image, Platform
+  StyleSheet, Modal, Image, Platform, Alert
 } from 'react-native';
 import { Plus, X, Ticket, Pencil, Upload } from 'lucide-react-native';
 import { NavigationBar } from '@/components/NavigationBar';
+import { db, auth } from '@/config/firebase';
+import { collection, addDoc } from 'firebase/firestore';
 
 interface CreateEventPageProps {
   onNavigate: (page: string, eventId?: string, options?: { showPrice?: boolean }) => void;
