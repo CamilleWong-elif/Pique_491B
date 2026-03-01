@@ -1,26 +1,8 @@
 // NotificationsModal.tsx (React Native)
+import { Calendar, Heart, MessageSquare, Star, TrendingUp, Trophy, UserPlus, X } from "lucide-react-native";
 import React, { useMemo } from "react";
-import {
-  Modal,
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Pressable,
-  FlatList,
-  Image,
-  Platform,
-} from "react-native";
-import {
-  X,
-  TrendingUp,
-  Heart,
-  MessageSquare,
-  UserPlus,
-  Trophy,
-  Star,
-  Calendar,
-} from "lucide-react-native";
+import { FlatList, Image, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export type NotificationType =
   | "like"
@@ -57,15 +39,9 @@ interface Props {
  * - Uses Image for avatars (replace with your ImageWithFallback if you have RN version).
  * - Requires `lucide-react-native`.
  */
-export function NotificationsModal({
-  isOpen,
-  onClose,
-  notifications,
-  onMarkAsRead,
-  onMarkAllAsRead,
-  unreadCount,
-}: Props) {
+export function NotificationsModal({ isOpen, onClose, notifications, onMarkAsRead, onMarkAllAsRead, unreadCount }: Props) {
   const empty = notifications.length === 0;
+  const insets = useSafeAreaInsets();
 
   const Icon = useMemo(() => {
     const map: Record<
@@ -226,8 +202,8 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   header: {
-    paddingTop: 59,
     paddingHorizontal: 24,
+    paddingTop: 12,
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",

@@ -9,7 +9,7 @@ module.exports = {
     android: {
       package: "com.piqueapp.main",
       adaptiveIcon: {
-        foregroundImage: "./src/assets/temp_logo.png",
+        foregroundImage: "./src/assets/images/temp_logo.png",
         backgroundColor: "#2E96F0"
       },
       config: {
