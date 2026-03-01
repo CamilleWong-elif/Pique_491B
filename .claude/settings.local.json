@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(node -e \"const f = require\\(''firebase/auth''\\); console.log\\(Object.keys\\(f\\).filter\\(k => k.includes\\(''Persistence''\\) || k.includes\\(''persistence''\\)\\)\\)\")"
-    ]
-  }
-}
