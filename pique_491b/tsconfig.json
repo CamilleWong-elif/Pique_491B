@@ -4,18 +4,28 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@screens/*": ["src/app/screens/*"],
-      "@components/*": ["src/components/*"],
-      "@assets/*": ["src/assets/*"],
-      "@constants/*": ["src/constants/*"],
-      "@hooks/*": ["src/hooks/*"]
+      "@/*": [
+        "src/*"
+      ],
+      "@screens/*": [
+        "src/app/screens/*"
+      ],
+      "@components/*": [
+        "src/components/*"
+      ],
+      "@assets/*": [
+        "src/assets/*"
+      ],
+      "@constants/*": [
+        "src/constants/*"
+      ],
+      "@hooks/*": [
+        "src/hooks/*"
+      ]
     }
   },
   "include": [
     "**/*.ts",
-    "**/*.tsx",
-    ".expo/types/**/*.ts",
-    "expo-env.d.ts"
+    "**/*.tsx"
   ]
 }

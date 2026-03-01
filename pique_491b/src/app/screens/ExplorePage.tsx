@@ -3,7 +3,8 @@ import * as Location from 'expo-location';
 import { ArrowLeft, CircleHelp, Crosshair, Star, Users, X } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Dimensions, PanResponder, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -20,18 +21,11 @@ interface ExplorePageProps {
   initialSearchQuery?: string;
 }
 
-export function ExplorePage({
-  onNavigate,
-  onOpenMessages,
-  unreadMessageCount,
-  initialCategory,
-  initialSearchQuery,
-}: ExplorePageProps) {
-  const [searchQuery, setSearchQuery] = useState(
-    initialSearchQuery || initialCategory || 'Outdoor Activities'
-  );
+export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, initialCategory, initialSearchQuery, }: ExplorePageProps) {
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState(initialCategory || 'All');
   const [showLegend, setShowLegend] = useState(false);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     (async () => {
@@ -82,10 +76,12 @@ export function ExplorePage({
 
   return (
     <View style={styles.container}>
+      <View style={[styles.topUI, { paddingTop: insets.top }]}></View>
 
     {/* Tentative Google Maps API */}
     <MapView
       // TBD: Removed PROVIDER_GOOGLE due to Expo Go limitation.
+      provider={PROVIDER_GOOGLE}
       style={styles.map}
       initialRegion={{
         latitude: 33.8366,    // Los Angeles area — update to match your mockData
@@ -309,7 +305,6 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    paddingTop: 59,
     paddingHorizontal: 21,
     zIndex: 30,
   },

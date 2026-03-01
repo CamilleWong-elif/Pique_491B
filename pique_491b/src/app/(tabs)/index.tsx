@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { CommunityPage } from '../screens/CommunityPage';
 import { CreateEventPage } from '../screens/CreateEventPage';
 import { ExplorePage } from '../screens/ExplorePage';
@@ -21,54 +22,55 @@ export default function App() {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaProvider>
+      <View style={styles.container}>
+        {/* Show splash screen on launch */}
+        {isLoading && (
+          <SplashScreen onComplete={() => setIsLoading(false)} />
+        )}
 
-      {/* Show splash screen on launch */}
-      {isLoading && (
-        <SplashScreen onComplete={() => setIsLoading(false)} />
-      )}
+        {/* Show login if not authenticated and not signing up */}
+        {!isLoading && !isAuthenticated && !showSignUp && (
+          <LoginScreen
+            onLogin={() => setIsAuthenticated(true)}
+            onNavigateToSignUp={() => setShowSignUp(true)}
+          />
+        )}
 
-      {/* Show login if not authenticated and not signing up */}
-      {!isLoading && !isAuthenticated && !showSignUp && (
-        <LoginScreen
-          onLogin={() => setIsAuthenticated(true)}
-          onNavigateToSignUp={() => setShowSignUp(true)}
-        />
-      )}
+        {/* Show sign up if user tapped "Sign Up" on login */}
+        {!isLoading && !isAuthenticated && showSignUp && (
+          <SignUpScreen
+            onSignUp={() => setIsAuthenticated(true)}
+            onNavigateToLogin={() => setShowSignUp(false)}
+          />
+        )}
 
-      {/* Show sign up if user tapped "Sign Up" on login */}
-      {!isLoading && !isAuthenticated && showSignUp && (
-        <SignUpScreen
-          onSignUp={() => setIsAuthenticated(true)}
-          onNavigateToLogin={() => setShowSignUp(false)}
-        />
-      )}
-
-      {/* Show main app once authenticated */}
-      {!isLoading && isAuthenticated && currentPage === 'home' && (
-        <HomePage
-          onNavigate={handleNavigate}
-          onSignOut={() => setIsAuthenticated(false)}
-          onOpenMessages={() => handleNavigate('messages')}
-        />
-      )}
-      {/* Explore page upon action */}
-      {!isLoading && isAuthenticated && currentPage === 'explore' && (
-        <ExplorePage onNavigate={handleNavigate} />
-      )}
-      {!isLoading && isAuthenticated && currentPage === 'leaderboard' && (
-        <CommunityPage onNavigate={handleNavigate} />
-      )}
-      {!isLoading && isAuthenticated && currentPage === 'profile' && (
-        <ProfilePage onNavigate={handleNavigate} />
-      )}
-      {!isLoading && isAuthenticated && currentPage === 'create' && (
-        <CreateEventPage onNavigate={handleNavigate} />
-      )}
-      {!isLoading && isAuthenticated && currentPage === 'messages' && (
-        <MessagingScreen onBack={() => handleNavigate('home')} />
-      )}
-    </View>
+        {/* Show main app once authenticated */}
+        {!isLoading && isAuthenticated && currentPage === 'home' && (
+          <HomePage
+            onNavigate={handleNavigate}
+            onSignOut={() => setIsAuthenticated(false)}
+            onOpenMessages={() => handleNavigate('messages')}
+          />
+        )}
+        {/* Explore page upon action */}
+        {!isLoading && isAuthenticated && currentPage === 'explore' && (
+          <ExplorePage onNavigate={handleNavigate} />
+        )}
+        {!isLoading && isAuthenticated && currentPage === 'leaderboard' && (
+          <CommunityPage onNavigate={handleNavigate} />
+        )}
+        {!isLoading && isAuthenticated && currentPage === 'profile' && (
+          <ProfilePage onNavigate={handleNavigate} />
+        )}
+        {!isLoading && isAuthenticated && currentPage === 'create' && (
+          <CreateEventPage onNavigate={handleNavigate} />
+        )}
+        {!isLoading && isAuthenticated && currentPage === 'messages' && (
+          <MessagingScreen onBack={() => handleNavigate('home')} />
+        )}
+      </View>
+    </SafeAreaProvider>
   );
 }
 
