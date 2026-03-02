@@ -1,7 +1,9 @@
 import { NavigationBar } from '@/components/NavigationBar';
 import { Calendar, FileText, Heart, Pencil, Plus, X } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { auth, db } from '@/config/firebase';
 
 // Placeholder data
 const mockEvents: any[] = [];
@@ -54,7 +56,21 @@ export function ProfilePage({
     setShowEditProfile(true);
   };
 
-  const handleSaveProfile = () => {
+  const handleSaveProfile = async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+
+    if (!editingName.trim()) {
+      Alert.alert("Missing username", "Please add a username.");
+      return;
+    }
+
+    await setDoc(doc(db, 'users', uid),{ 
+      displayName: editingName,
+      bio: editingBio,
+      updatedAt: new Date() 
+    }, { merge: true });
+
     setUserName(editingName);
     setBio(editingBio);
     setShowEditProfile(false);
