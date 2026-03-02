@@ -1,9 +1,17 @@
+import { ArrowLeft, Send } from 'lucide-react-native';
 import { useState } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, Image,
-  StyleSheet, SafeAreaView, TextInput, KeyboardAvoidingView, Platform,
+  FlatList,
+  Image,
+  KeyboardAvoidingView, Platform,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { ArrowLeft, Send } from 'lucide-react-native';
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Conversation = {
   id: string;
@@ -56,6 +64,7 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
   const [activeConvo, setActiveConvo] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
+  const insets = useSafeAreaInsets();
 
   const openConversation = (convo: Conversation) => {
     setActiveConvo(convo);
@@ -78,7 +87,7 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
   if (activeConvo) {
     return (
       <SafeAreaView style={styles.root}>
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
           <TouchableOpacity onPress={() => setActiveConvo(null)}>
             <ArrowLeft size={24} color="#111" />
           </TouchableOpacity>
@@ -135,7 +144,7 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
   // Conversation list view
   return (
     <SafeAreaView style={styles.root}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <TouchableOpacity onPress={onBack}>
           <ArrowLeft size={24} color="#111" />
         </TouchableOpacity>

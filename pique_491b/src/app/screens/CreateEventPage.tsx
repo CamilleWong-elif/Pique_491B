@@ -1,17 +1,21 @@
+import { NavigationBar } from '@/components/NavigationBar';
+import { Pencil, Plus, Ticket, Upload, X } from 'lucide-react-native';
 import { useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, Modal, Image, Platform, Alert
+  Alert,
+  Image,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { Plus, X, Ticket, Pencil, Upload } from 'lucide-react-native';
-import { NavigationBar } from '@/components/NavigationBar';
-<<<<<<< HEAD
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { addDoc, collection } from 'firebase/firestore';
-import { auth, db } from '@/config/firebase';
-=======
-import { db, auth } from '@/config/firebase';
-import { collection, addDoc } from 'firebase/firestore';
->>>>>>> 70a0f7ca1242574d8a218f3c9b05cc02329ce645
+import { auth, db } from '@/firebase';
 
 interface CreateEventPageProps {
   onNavigate: (page: string, eventId?: string, options?: { showPrice?: boolean }) => void;
@@ -51,6 +55,7 @@ export function CreateEventPage({ onNavigate, onOpenMessages, unreadMessageCount
   ]);
   const [showTicketModal, setShowTicketModal] = useState(false);
   const [editingTicket, setEditingTicket] = useState<TicketTier | null>(null);
+  const insets = useSafeAreaInsets();
 
   const toggleCategory = (category: string) => {
     if (selectedCategories.includes(category)) {
@@ -140,7 +145,7 @@ export function CreateEventPage({ onNavigate, onOpenMessages, unreadMessageCount
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <TouchableOpacity onPress={() => onNavigate('home')}>
           <X size={24} color="#ffffff" />
         </TouchableOpacity>
@@ -420,7 +425,6 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#2C2C2C',
-    paddingTop: Platform.OS === 'ios' ? 59 : 40,
     paddingBottom: 16,
     paddingHorizontal: 18,
     flexDirection: 'row',
