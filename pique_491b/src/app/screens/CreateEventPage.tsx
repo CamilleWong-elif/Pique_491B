@@ -5,8 +5,13 @@ import {
 } from 'react-native';
 import { Plus, X, Ticket, Pencil, Upload } from 'lucide-react-native';
 import { NavigationBar } from '@/components/NavigationBar';
+<<<<<<< HEAD
 import { addDoc, collection } from 'firebase/firestore';
 import { auth, db } from '@/config/firebase';
+=======
+import { db, auth } from '@/config/firebase';
+import { collection, addDoc } from 'firebase/firestore';
+>>>>>>> 70a0f7ca1242574d8a218f3c9b05cc02329ce645
 
 interface CreateEventPageProps {
   onNavigate: (page: string, eventId?: string, options?: { showPrice?: boolean }) => void;
