@@ -1,8 +1,11 @@
-import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Image, Modal, useColorScheme } from 'react-native';
-import { Mail, Lock, Eye, EyeOff, User, Check, X, Calendar } from 'lucide-react-native';
-import Svg, { Path, Rect } from 'react-native-svg';
+import { auth } from '@/firebase';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { Calendar, Check, Eye, EyeOff, Lock, Mail, User, X } from 'lucide-react-native';
+import { useState } from 'react';
+import { Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useColorScheme, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Path, Rect } from 'react-native-svg';
 
 const colorScheme = useColorScheme();
 const logo = require('@/assets/images/temp_logo.png');
@@ -13,13 +16,7 @@ interface SignUpScreenProps {
 }
 
 export function SignUpScreen({ onSignUp, onNavigateToLogin }: SignUpScreenProps) {
-  const [formData, setFormData] = useState({
-    fullName: '',
-    username: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
-  });
+  const [formData, setFormData] = useState({ fullName: '', username: '', email: '', password: '', confirmPassword: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
@@ -30,6 +27,7 @@ export function SignUpScreen({ onSignUp, onNavigateToLogin }: SignUpScreenProps)
   const [dateOfBirth, setDateOfBirth] = useState(
     new Date(currentYear - 18, 3, 8) // April 8, 18 years ago
   );
+  const insets = useSafeAreaInsets();
 
   const getPasswordStrength = (password: string) => ({
     length: password.length >= 8,
@@ -94,7 +92,7 @@ export function SignUpScreen({ onSignUp, onNavigateToLogin }: SignUpScreenProps)
     }));
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const newErrors: Record<string, string> = {};
     Object.keys(formData).forEach(key => {
       const error = validateField(key, formData[key as keyof typeof formData]);
@@ -112,7 +110,26 @@ export function SignUpScreen({ onSignUp, onNavigateToLogin }: SignUpScreenProps)
     });
 
     if (Object.keys(newErrors).length === 0) {
-      onSignUp();
+      try {
+        const userCredential = await createUserWithEmailAndPassword(
+          auth,
+          formData.email,
+          formData.password
+        );
+        await updateProfile(userCredential.user, {
+          displayName: formData.fullName,
+        });
+        console.log('Firebase user created:', userCredential.user);
+        onSignUp();
+      } catch (error: any) {
+        if (error.code === 'auth/email-already-in-use') {
+          setErrors(prev => ({ ...prev, email: 'This email is already registered' }));
+        } else if (error.code === 'auth/invalid-email') {
+          setErrors(prev => ({ ...prev, email: 'Invalid email address' }));
+        } else {
+          console.log('Sign up error:', error);
+        }
+      }
     }
   };
 
@@ -210,36 +227,18 @@ export function SignUpScreen({ onSignUp, onNavigateToLogin }: SignUpScreenProps)
         </TouchableOpacity>
 
         {/* Date Picker Modal */}
-        <Modal
-            visible={showDatePicker}
-            transparent
-            animationType="slide"
-            >
-            <View style={styles.modalOverlay}>
-                <View style={styles.modalContent}>
-                    <View style={styles.modalHeader}>
-                        <TouchableOpacity onPress={() => setShowDatePicker(false)}>
-                            <Text style={styles.modalCancel}>Cancel</Text>
-                        </TouchableOpacity>
-                            <Text style={styles.modalTitle}>Date of Birth</Text>
-                        <TouchableOpacity onPress={() => setShowDatePicker(false)}>
-                            <Text style={styles.modalDone}>Done</Text>
-                        </TouchableOpacity>
-                </View>
-                <DateTimePicker
-                    value={dateOfBirth}
-                    mode="date"
-                    display="spinner"
-                    onChange={(event, selectedDate) => {
-                    if (selectedDate) setDateOfBirth(selectedDate);
-                    }}
-                    maximumDate={new Date(currentYear - 13, 11, 31)}
-                    style={{ backgroundColor: '#ffffff' }}
-                    themeVariant="light"
-                />
-                </View>
-            </View>
-        </Modal>
+        {showDatePicker && (
+          <DateTimePicker
+            value={dateOfBirth}
+            mode="date"
+            display="default"
+            onChange={(event, selectedDate) => {
+              setShowDatePicker(false);
+              if (selectedDate) setDateOfBirth(selectedDate);
+            }}
+            maximumDate={new Date(currentYear - 13, 11, 31)}
+          />
+        )}
 
         {/* Password */}
         <Text style={[styles.label, { marginTop: 16 }]}>Password</Text>
@@ -378,14 +377,6 @@ export function SignUpScreen({ onSignUp, onNavigateToLogin }: SignUpScreenProps)
           <Text style={styles.socialButtonText}>Sign up with Google</Text>
         </TouchableOpacity>
 
-        {/* Apple */}
-        <TouchableOpacity style={styles.socialButton} onPress={() => handleSocialSignUp('Apple')}>
-          <Svg width={20} height={20} viewBox="0 0 24 24">
-            <Path fill="#000000" d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
-          </Svg>
-          <Text style={styles.socialButtonText}>Sign up with Apple</Text>
-        </TouchableOpacity>
-
         {/* Microsoft */}
         <TouchableOpacity style={styles.socialButton} onPress={() => handleSocialSignUp('Microsoft')}>
           <Svg width={20} height={20} viewBox="0 0 24 24">
@@ -490,39 +481,6 @@ const styles = StyleSheet.create({
   dateButtonText: {
     fontSize: 14,
     color: '#111827',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#ffffff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 16,
-    paddingBottom: 24,
-    paddingHorizontal: 24,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  modalCancel: {
-    fontSize: 17,
-    color: '#0ea5e9',
-  },
-  modalTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  modalDone: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#0ea5e9',
   },
   strengthContainer: {
     marginTop: 8,
