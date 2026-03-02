@@ -3,7 +3,7 @@ import { Calendar, FileText, Heart, Pencil, Plus, X } from 'lucide-react-native'
 import { useMemo, useState } from 'react';
 import { Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
-import { auth, db } from '@/config/firebase';
+import { auth, db } from '@/firebase';
 
 // Placeholder data
 const mockEvents: any[] = [];

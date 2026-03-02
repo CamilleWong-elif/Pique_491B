@@ -16,7 +16,7 @@ import {
 import { ArrowLeft, Star, Upload, X } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 import { addDoc, collection } from 'firebase/firestore';
-import { auth, db } from '@/config/firebase';
+import { auth, db } from '@/firebase';
 
 // ----- Types (adjust to your app) -----
 export type Event = {
