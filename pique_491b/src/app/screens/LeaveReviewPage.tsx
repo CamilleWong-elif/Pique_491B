@@ -15,6 +15,8 @@ import {
 } from "react-native";
 import { ArrowLeft, Star, Upload, X } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
+import { addDoc, collection } from 'firebase/firestore';
+import { auth, db } from '@/config/firebase';
 
 // ----- Types (adjust to your app) -----
 export type Event = {
@@ -90,8 +92,27 @@ export function LeaveReviewScreen({ event, onBack, onReviewPosted }: Props) {
     setMedia((prev) => [...prev, ...picked]);
   };
 
-  const handlePostReview = () => {
-    // Send to backend here: rating, reviewText, media[]
+  const handlePostReview = async () => {
+    if (!auth.currentUser) {
+      Alert.alert("Sign in required", "Please sign in to post a review.");
+      return;
+    }
+    if (rating <= 0 || rating > 5) {
+      Alert.alert("Invalid rating", "Please select a rating between 1 and 5.");
+      return;
+    }
+    if (!reviewText.trim()) {
+      Alert.alert("Missing review", "Please add a short review before posting.");
+      return;
+    }
+    await addDoc(collection(db, "reviews"), {
+      event: event.id,
+      author: auth.currentUser.uid,
+      rating,
+      comment: reviewText,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
     onReviewPosted();
   };
 
