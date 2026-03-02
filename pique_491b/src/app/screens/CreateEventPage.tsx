@@ -2,13 +2,20 @@ import { NavigationBar } from '@/components/NavigationBar';
 import { Pencil, Plus, Ticket, Upload, X } from 'lucide-react-native';
 import { useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, Modal, Image, Platform, Alert
+  Alert,
+  Image,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { Plus, X, Ticket, Pencil, Upload } from 'lucide-react-native';
-import { NavigationBar } from '@/components/NavigationBar';
-import { db, auth } from '@/config/firebase';
-import { collection, addDoc } from 'firebase/firestore';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { addDoc, collection } from 'firebase/firestore';
+import { auth, db } from '@/firebase';
 
 interface CreateEventPageProps {
   onNavigate: (page: string, eventId?: string, options?: { showPrice?: boolean }) => void;
@@ -87,9 +94,52 @@ export function CreateEventPage({ onNavigate, onOpenMessages, unreadMessageCount
     }
   };
 
-  const handlePostEvent = () => {
-    if (onEventCreated) onEventCreated();
-    onNavigate('home');
+  const handlePostEvent = async () => {
+    try {
+      if (!eventName.trim()) {
+        Alert.alert('Missing info', 'Event name is required.');
+        return;
+      }
+      if (!date.trim()) {
+        Alert.alert('Missing info', 'Date is required.');
+        return;
+      }
+      if (!location.trim()) {
+        Alert.alert('Missing info', 'Location is required.');
+        return;
+      }
+      if (!description.trim()) {
+        Alert.alert('Missing info', 'Description is required.');
+        return;
+      }
+      if (!ageRangeOptions.includes(ageRange)) {
+        Alert.alert('Invalid age range', 'Please select a valid age range.');
+        return;
+      }
+      const capacityNum = maxCapacity.trim() === '' ? null : Number(maxCapacity);
+      if (capacityNum !== null && (!Number.isInteger(capacityNum) || capacityNum <= 0)) {
+        Alert.alert('Invalid capacity', 'Max attendees must be a positive integer.');
+        return;
+      }
+
+      await addDoc(collection(db, "events"),{
+        name: eventName,
+        description,
+        location,
+        date: date,
+        maxCapacity: capacityNum,
+        ageRange: ageRange,
+        categories: selectedCategories,
+        ticketTiers,
+        createdBy: auth.currentUser?.uid,
+        createdAt: new Date()
+        
+      });
+      if (onEventCreated) onEventCreated();
+      onNavigate('home');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to create event. Please try again.');
+    }
   };
 
   return (
