@@ -3,7 +3,8 @@
     "allow": [
       "Bash(git add README.md)",
       "Bash(git commit -m \"add running instructions to README\")",
-      "Bash(git push origin main)"
+      "Bash(git push origin main)",
+      "Bash(ls \"c:\\\\Users\\\\anhng\\\\Desktop\\\\CECS 491B\\\\pique_491b\\\\src/app/\\(tabs\\)\")"
     ]
   }
 }
