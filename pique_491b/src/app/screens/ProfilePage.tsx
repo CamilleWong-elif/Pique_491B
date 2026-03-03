@@ -1,12 +1,12 @@
 import { NavigationBar } from '@/components/NavigationBar';
+import { useAuth } from '@/context/AuthContext';
+import { auth, db } from '@/firebase';
 import { Calendar, FileText, Heart, Pencil, Plus, X } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
-import { auth, db } from '@/firebase';
+import { doc, setDoc } from 'firebase/firestore';
 
-// Placeholder data
-const mockEvents: any[] = [];
+const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1653771926391-d1b5608c90b2?w=400';
 
 type TabType = 'posted' | 'liked' | 'booked';
 
@@ -23,19 +23,17 @@ export function ProfilePage({
   onOpenMessages,
   unreadMessageCount,
 }: ProfilePageProps) {
+  const { user, profile } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
   const [sortOption, setSortOption] = useState('latest');
   const [showFollowModal, setShowFollowModal] = useState<'followers' | 'following' | null>(null);
   const [showEditProfile, setShowEditProfile] = useState(false);
-
-  // Profile state
-  const [userName, setUserName] = useState('Alex Rivera');
-  const [profilePicture] = useState(
-    'https://images.unsplash.com/photo-1653771926391-d1b5608c90b2?w=400'
-  );
-  const [bio, setBio] = useState('Event enthusiast | Foodie | Explorer 🌟');
   const [editingName, setEditingName] = useState('');
   const [editingBio, setEditingBio] = useState('');
+
+  const userName = profile?.displayName ?? user?.displayName ?? user?.email ?? 'User';
+  const profilePicture = profile?.photoURL ?? user?.photoURL ?? DEFAULT_AVATAR;
+  const bio = profile?.bio ?? '';
 
   const followerCount = useMemo(() => Math.floor(Math.random() * 100) + 1, []);
   const followingCount = useMemo(() => Math.floor(Math.random() * 100) + 1, []);
@@ -65,14 +63,12 @@ export function ProfilePage({
       return;
     }
 
-    await setDoc(doc(db, 'users', uid),{ 
-      displayName: editingName,
-      bio: editingBio,
-      updatedAt: new Date() 
+    await setDoc(doc(db, 'users', uid), {
+      displayName: editingName.trim(),
+      bio: editingBio.trim(),
+      updatedAt: new Date(),
     }, { merge: true });
 
-    setUserName(editingName);
-    setBio(editingBio);
     setShowEditProfile(false);
   };
 

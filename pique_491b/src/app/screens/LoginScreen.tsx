@@ -1,3 +1,5 @@
+import { auth } from '@/firebase';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react-native';
 import { useState } from 'react';
 import { Dimensions, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -17,10 +19,36 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
   
-  const handleSubmit = () => {
-    onLogin();
+  const handleSubmit = async () => {
+    setError(null);
+
+    if (!email.trim() || !password) {
+      setError('Please enter both email and password.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+      onLogin();
+    } catch (err: any) {
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
+        setError('Invalid email or password.');
+      } else if (err.code === 'auth/user-not-found') {
+        setError('No account found with this email.');
+      } else if (err.code === 'auth/invalid-email') {
+        setError('Please enter a valid email address.');
+      } else {
+        setError('Unable to sign in. Please try again.');
+        console.log('Firebase login error:', err);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleSocialLogin = (provider: string) => {
@@ -59,6 +87,10 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
           />
         </View>
 
+        {error && (
+          <Text style={styles.errorMessage}>{error}</Text>
+        )}
+
         {/* Password Input */}
         <Text style={[styles.label, { marginTop: 16 }]}>Password</Text>
         <View style={styles.inputWrapper}>
@@ -88,8 +120,14 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
         </TouchableOpacity>
 
         {/* Sign In Button */}
-        <TouchableOpacity style={styles.signInButton} onPress={handleSubmit}>
-          <Text style={styles.signInButtonText}>Sign In</Text>
+        <TouchableOpacity
+          style={styles.signInButton}
+          onPress={handleSubmit}
+          disabled={isSubmitting}
+        >
+          <Text style={styles.signInButtonText}>
+            {isSubmitting ? 'Signing In...' : 'Sign In'}
+          </Text>
         </TouchableOpacity>
 
         {/* Divider */}
@@ -179,6 +217,11 @@ const styles = StyleSheet.create({
   form: {
     flex: 1,
     paddingHorizontal: 32,
+  },
+  errorMessage: {
+    marginTop: 8,
+    fontSize: 13,
+    color: '#dc2626',
   },
   label: {
     fontSize: 14,
