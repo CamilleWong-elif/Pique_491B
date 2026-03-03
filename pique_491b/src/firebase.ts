@@ -1,7 +1,9 @@
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import * as firebaseAuth from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import Constants from "expo-constants";
+import { Platform } from "react-native";
+import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 
 const firebaseConfig = Constants.expoConfig?.extra?.firebase as
   | {
@@ -31,6 +33,16 @@ const config = {
 
 const app = initializeApp(config);
 
-export const auth = getAuth(app);
+const getReactNativePersistence = (firebaseAuth as any)
+  .getReactNativePersistence as undefined | ((storage: any) => any);
+
+export const auth =
+  Platform.OS === "web"
+    ? firebaseAuth.getAuth(app)
+    : getReactNativePersistence
+      ? firebaseAuth.initializeAuth(app, {
+          persistence: getReactNativePersistence(ReactNativeAsyncStorage),
+        })
+      : firebaseAuth.getAuth(app);
 export const db = getFirestore(app);
 export default app;
