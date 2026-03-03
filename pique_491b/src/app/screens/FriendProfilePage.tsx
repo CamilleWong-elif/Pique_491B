@@ -1,5 +1,8 @@
 // FriendProfileScreen.tsx
-import React, { useMemo, useState } from "react";
+//Mock Data at 100-111, 126-153
+import React, { useMemo, useState, useEffect } from "react";
+import {collection, doc, getDoc} from "firebase/firestore"
+import {auth, db} from "@/firebase";
 import {
   View,
   Text,
@@ -94,29 +97,49 @@ export function FriendProfileScreen({
   const [showFollowModal, setShowFollowModal] = useState<"followers" | "following" | null>(null);
   const [isFollowing, setIsFollowing] = useState<boolean>(Math.random() > 0.5);
 
-  const friendData = useMemo(() => {
-    const bios = [
-      "Event enthusiast | Foodie | Explorer 🌟",
-      "Adventure seeker 🏔️ | Coffee lover ☕",
-      "Music lover 🎵 | Travel addict ✈️",
-      "Fitness junkie 💪 | Nature lover 🌲",
-      "Art enthusiast 🎨 | Photographer 📸",
-      "Bookworm 📚 | Movie buff 🎬",
-      "Foodie explorer 🍜 | Chef wannabe 👨‍🍳",
-      "Party animal 🎉 | Social butterfly 🦋",
-      "Yoga instructor 🧘 | Wellness advocate 💚",
-      "Gamer 🎮 | Tech geek 💻",
-    ];
+  const [friendData, setFriendData] = useState({
+    id: friendName,
+    name: "",
+    bio: "",
+    avatar: getAvatarWithFallback(friendName),
+    followerCount: 0,
+    followingCount: 0,
+  });
 
-    const hash = friendName.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  useEffect(() => {
+    const fetchFriendData = async () => {
+      try {
+        const userDoc = await getDoc(doc(db, "users", friendName));
+        const userData = userDoc.data();
+        
+        const bios = [
+          "Event enthusiast | Foodie | Explorer 🌟",
+          "Adventure seeker 🏔️ | Coffee lover ☕",
+          "Music lover 🎵 | Travel addict ✈️",
+          "Fitness junkie 💪 | Nature lover 🌲",
+          "Art enthusiast 🎨 | Photographer 📸",
+          "Bookworm 📚 | Movie buff 🎬",
+          "Foodie explorer 🍜 | Chef wannabe 👨‍🍳",
+          "Party animal 🎉 | Social butterfly 🦋",
+          "Yoga instructor 🧘 | Wellness advocate 💚",
+          "Gamer 🎮 | Tech geek 💻",
+        ];
+        const hash = friendName.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
 
-    return {
-      name: friendName,
-      bio: bios[hash % bios.length],
-      avatar: getAvatarWithFallback(friendName),
-      followerCount: Math.floor(Math.random() * 100) + 1,
-      followingCount: Math.floor(Math.random() * 100) + 1,
+        setFriendData({
+          id: userData?.id || friendName, 
+          name: userData?.displayName || "",
+          bio: userData?.bio || bios[hash % bios.length],
+          avatar: userData?.avatar || getAvatarWithFallback(friendName),
+          followerCount: Math.floor(Math.random() * 100) + 1,
+          followingCount: Math.floor(Math.random() * 100) + 1,
+        });
+      } catch (error) {
+        console.error("Error fetching friend data:", error);
+      }
     };
+
+    fetchFriendData();
   }, [friendName, getAvatarWithFallback]);
 
   const mockFollowers = useMemo<UserRow[]>(() => {
