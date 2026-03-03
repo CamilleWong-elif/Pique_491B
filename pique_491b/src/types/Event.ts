@@ -1,0 +1,12 @@
+export type Event = {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  startDate?: string;
+  endDate?: string;
+  category?: string;
+  city?: string;
+  pricePoint?: number;
+  rating?: number;
+  distance?: number;
+};

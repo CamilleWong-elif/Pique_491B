@@ -1,16 +1,31 @@
 import { NavigationBar } from '@/components/NavigationBar';
 import * as Location from 'expo-location';
 import { ArrowLeft, CircleHelp, Crosshair, Star, Users, X } from 'lucide-react-native';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Dimensions, PanResponder, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {collection, getDocs} from "firebase/firestore"
+import {auth, db} from "@/firebase"
+
+// Calculate distance between two lat/lng points in miles using Haversine formula
+const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+  const R = 3959; // Earth's radius in miles
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
+const MAX_DISTANCE_MILES = 50;
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-
-// Placeholder data — replace with real mockData imports when ready
-const mockEvents: any[] = [];
-const mockFriends: any[] = [];
 const categories = ['All', 'Music', 'Sports', 'Arts', 'Tech', 'Outdoors'];
+
 
 interface ExplorePageProps {
   onNavigate: (page: string, eventId?: string, options?: any) => void;
@@ -20,25 +35,72 @@ interface ExplorePageProps {
   initialSearchQuery?: string;
 }
 
-export function ExplorePage({
-  onNavigate,
-  onOpenMessages,
-  unreadMessageCount,
-  initialCategory,
-  initialSearchQuery,
-}: ExplorePageProps) {
-  const [searchQuery, setSearchQuery] = useState(
-    initialSearchQuery || initialCategory || 'Outdoor Activities'
-  );
+export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, initialCategory, initialSearchQuery, }: ExplorePageProps) {
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery || '');
   const [selectedCategory, setSelectedCategory] = useState(initialCategory || 'All');
   const [showLegend, setShowLegend] = useState(false);
+  const [events, setEvents] = useState<any[]>([]);
+  const [friends, setFriends] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const insets = useSafeAreaInsets();
 
+  // Fetch raw events from Firestore
+  useEffect(() => {
+    const fetchEvents = async () => {
+      try {
+        const eventDocs = await getDocs(collection(db, 'events'));
+        const eventsList = eventDocs.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setEvents(eventsList as any[]);
+      } catch (error) {
+        console.error("Error fetching events:", error);
+      }
+    };
+
+    fetchEvents();
+  }, []);
+
+  // Fetch raw friends from Firestore
+  useEffect(() => {
+    const fetchFriends = async () => {
+      try {
+        const friendDocs = await getDocs(collection(db, 'users'));
+        const friendsList = friendDocs.docs
+          .filter(doc => doc.id !== auth.currentUser?.uid)  // exclude current user
+          .map(doc => ({
+            id: doc.id,
+            name: doc.data().displayName || 'Unknown',
+            lat: doc.data().lat || 0,
+            lng: doc.data().lng || 0,
+          }));
+
+        setFriends(friendsList);
+        setLoading(false);
+      } catch (error) {
+        console.error("Error fetching friends:", error);
+        setLoading(false);
+      }
+    };
+
+    fetchFriends();
+  }, []);
+
+  // Get user's current location
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         console.log('Location permission denied');
+        return;
       }
+      const location = await Location.getCurrentPositionAsync({});
+      setUserLocation({
+        lat: location.coords.latitude,
+        lng: location.coords.longitude
+      });
     })();
   }, []);
 
@@ -74,18 +136,55 @@ export function ExplorePage({
     })
   ).current;
 
-  // Filtered events
-  const activityEvents = mockEvents.filter((e: any) => e.category !== 'Food & Drink');
-  const filteredEvents = selectedCategory === 'All'
-    ? activityEvents
-    : activityEvents.filter((e: any) => e.category === selectedCategory);
+  const { filteredEvents, filteredFriends } = useMemo(() => {
+    const withinDistance = (lat?: number, lng?: number) => {
+      if (!lat || !lng) return false;
+      if (!userLocation) return true;
+      return calculateDistance(userLocation.lat, userLocation.lng, lat, lng) <= MAX_DISTANCE_MILES;
+    };
+
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+
+    const eventsInRange = events.filter((event: any) => withinDistance(event.lat, event.lng));
+    const eventsWithoutFood = eventsInRange.filter((event: any) => event.category !== 'Food & Drink');
+    const eventsByCategory = selectedCategory === 'All'
+      ? eventsWithoutFood
+      : eventsWithoutFood.filter((event: any) => event.category === selectedCategory);
+
+    const eventsBySearch = normalizedQuery
+      ? eventsByCategory.filter((event: any) => {
+          const name = String(event.name || '').toLowerCase();
+          const city = String(event.city || '').toLowerCase();
+          const state = String(event.state || '').toLowerCase();
+          const category = String(event.category || '').toLowerCase();
+          return (
+            name.includes(normalizedQuery) ||
+            city.includes(normalizedQuery) ||
+            state.includes(normalizedQuery) ||
+            category.includes(normalizedQuery)
+          );
+        })
+      : eventsByCategory;
+
+    const friendsInRange = friends.filter((friend: any) => withinDistance(friend.lat, friend.lng));
+    const friendsBySearch = normalizedQuery
+      ? friendsInRange.filter((friend: any) => String(friend.name || '').toLowerCase().includes(normalizedQuery))
+      : friendsInRange;
+
+    return {
+      filteredEvents: eventsBySearch,
+      filteredFriends: friendsBySearch,
+    };
+  }, [events, friends, searchQuery, selectedCategory, userLocation]);
 
   return (
     <View style={styles.container}>
+      <View style={[styles.topUI, { paddingTop: insets.top }]}></View>
 
     {/* Tentative Google Maps API */}
     <MapView
       // TBD: Removed PROVIDER_GOOGLE due to Expo Go limitation.
+      provider={PROVIDER_GOOGLE}
       style={styles.map}
       initialRegion={{
         latitude: 33.8366,    // Los Angeles area — update to match your mockData
@@ -108,7 +207,7 @@ export function ExplorePage({
       ))}
 
       {/* Friend Markers */}
-      {mockFriends.map((friend: any) => (
+      {filteredFriends.map((friend: any) => (
         <Marker
           key={friend.id}
           coordinate={{ latitude: friend.lat, longitude: friend.lng }}
@@ -221,7 +320,7 @@ export function ExplorePage({
               <Text style={styles.suggestedTitle}>Meet in the Middle</Text>
             </View>
             <Text style={styles.suggestedSubtitle}>
-              Events closest to you and your {mockFriends.length} friends
+              Events closest to you and your {filteredFriends.length} friends
             </Text>
             {filteredEvents.slice(0, 3).map((event: any, index: number) => (
               <TouchableOpacity
@@ -309,8 +408,8 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    paddingTop: 59,
     paddingHorizontal: 21,
+    paddingVertical: 60,
     zIndex: 30,
   },
   searchRow: {
@@ -333,7 +432,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#d1d5db',
     borderRadius: 5,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 5,
   },
   searchInput: {
     fontSize: 11,

@@ -1,8 +1,10 @@
-import { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Modal, Image } from 'react-native';
-import { Search, Menu, MessageCircle, Plus, Bell } from 'lucide-react-native';
 import { NavigationBar } from '@/components/NavigationBar';
-import { EventCard, SocialActivityCard, SearchOverlay, NotificationsModal } from '@/components/Placeholder';
+import { NotificationsModal } from '@/components/NotificationsModal';
+import { EventCard, SearchOverlay, SocialActivityCard } from '@/components/Placeholder';
+import { Bell, Menu, MessageCircle, Plus, Search } from 'lucide-react-native';
+import { useState } from 'react';
+import { Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Placeholder data — replace with real mockData imports when ready
 const mockEvents: any[] = [];
@@ -27,6 +29,7 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState(mockNotifications);
+  const insets = useSafeAreaInsets();
 
   const unreadNotificationCount = notifications.filter((n: any) => !n.read).length;
 
@@ -50,6 +53,8 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
 
   return (
     <View style={styles.container}>
+      {/* Header for Android UI */ }
+      <View style={{ paddingTop: insets.top }}></View>
 
       {/* Slide-out Menu Modal */}
       <Modal visible={isMenuOpen} transparent animationType="none">
@@ -320,7 +325,6 @@ const styles = StyleSheet.create({
   menuContent: {
     flex: 1,
     padding: 20,
-    paddingTop: 60,
   },
   closeButton: {
     alignSelf: 'flex-end',
@@ -357,7 +361,6 @@ const styles = StyleSheet.create({
   // Header
   header: {
     paddingHorizontal: 18,
-    paddingTop: 52,
   },
   headerRow: {
     flexDirection: 'row',
