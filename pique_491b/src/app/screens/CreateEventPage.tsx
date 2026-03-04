@@ -1,5 +1,6 @@
 import { NavigationBar } from '@/components/NavigationBar';
-import { Pencil, Plus, Ticket, Upload, X } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { Camera, Pencil, Plus, Ticket, Upload, X } from 'lucide-react-native';
 import { useState } from 'react';
 import {
   Alert,
@@ -55,7 +56,37 @@ export function CreateEventPage({ onNavigate, onOpenMessages, unreadMessageCount
   ]);
   const [showTicketModal, setShowTicketModal] = useState(false);
   const [editingTicket, setEditingTicket] = useState<TicketTier | null>(null);
+  const [photos, setPhotos] = useState<string[]>([]);
   const insets = useSafeAreaInsets();
+
+  const pickImages = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Please allow access to your photo library.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      quality: 0.8,
+    });
+    if (!result.canceled) {
+      const uris = result.assets.map(a => a.uri);
+      setPhotos(prev => [...prev, ...uris].slice(0, 5));
+    }
+  };
+
+  const takePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Please allow access to your camera.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+    if (!result.canceled) {
+      setPhotos(prev => [...prev, result.assets[0].uri].slice(0, 5));
+    }
+  };
 
   const toggleCategory = (category: string) => {
     if (selectedCategories.includes(category)) {
@@ -112,6 +143,14 @@ export function CreateEventPage({ onNavigate, onOpenMessages, unreadMessageCount
         Alert.alert('Missing info', 'Description is required.');
         return;
       }
+      if (photos.length === 0) {
+        Alert.alert('Missing info', 'Please add at least one photo.');
+        return;
+      }
+      if (selectedCategories.length === 0) {
+        Alert.alert('Missing info', 'Please select at least one category.');
+        return;
+      }
       if (!ageRangeOptions.includes(ageRange)) {
         Alert.alert('Invalid age range', 'Please select a valid age range.');
         return;
@@ -157,13 +196,38 @@ export function CreateEventPage({ onNavigate, onOpenMessages, unreadMessageCount
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
 
-        {/* Image Upload Placeholder */}
+        {/* Image Upload */}
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Event Photos</Text>
-          <TouchableOpacity style={styles.uploadBox}>
-            <Upload size={28} color="#9ca3af" />
-            <Text style={styles.uploadText}>Add Photos</Text>
-          </TouchableOpacity>
+          <Text style={styles.sectionLabel}>Event Photos ({photos.length}/5)</Text>
+          {photos.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {photos.map((uri, i) => (
+                  <View key={i} style={{ position: 'relative' }}>
+                    <Image source={{ uri }} style={styles.photoThumb} />
+                    <TouchableOpacity
+                      style={styles.photoRemove}
+                      onPress={() => setPhotos(photos.filter((_, j) => j !== i))}
+                    >
+                      <X size={10} color="#ffffff" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          )}
+          {photos.length < 5 && (
+            <View style={styles.uploadRow}>
+              <TouchableOpacity style={[styles.uploadBox, { flex: 1 }]} onPress={pickImages}>
+                <Upload size={24} color="#9ca3af" />
+                <Text style={styles.uploadText}>Gallery</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.uploadBox, { flex: 1 }]} onPress={takePhoto}>
+                <Camera size={24} color="#9ca3af" />
+                <Text style={styles.uploadText}>Camera</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* Event Name + Age Range */}
@@ -499,6 +563,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#9ca3af',
   },
+  uploadRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
   uploadBox: {
     borderWidth: 2,
     borderStyle: 'dashed',
@@ -513,6 +581,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#9ca3af',
     fontWeight: '500',
+  },
+  photoThumb: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+  },
+  photoRemove: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 10,
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   ageButton: {
     borderWidth: 1,
