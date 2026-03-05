@@ -8,6 +8,7 @@ import { HomePage } from '../screens/HomePage';
 import { LoginScreen } from '../screens/LoginScreen';
 import { MessagingScreen } from '../screens/MessagingScreen';
 import { ProfilePage } from '../screens/ProfilePage';
+import { SettingsScreen } from '../screens/SettingsPage';
 import { SignUpScreen } from '../screens/SignUpScreen';
 import { SplashScreen } from '../screens/SplashScreen';
 
@@ -49,7 +50,7 @@ export default function App() {
         {!isLoading && isAuthenticated && currentPage === 'home' && (
           <HomePage
             onNavigate={handleNavigate}
-            onSignOut={() => setIsAuthenticated(false)}
+            onSignOut={() => { setIsAuthenticated(false); setShowSignUp(false); }}
             onOpenMessages={() => handleNavigate('messages')}
           />
         )}
@@ -68,6 +69,9 @@ export default function App() {
         )}
         {!isLoading && isAuthenticated && currentPage === 'messages' && (
           <MessagingScreen onBack={() => handleNavigate('home')} />
+        )}
+        {!isLoading && isAuthenticated && currentPage === 'settings' && (
+          <SettingsScreen onNavigate={handleNavigate} />
         )}
       </View>
     </SafeAreaProvider>

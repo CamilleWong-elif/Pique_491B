@@ -1,19 +1,8 @@
 // SearchOverlay.tsx (React Native)
+import { ArrowLeft, MapPin, Mic, Search, X } from "lucide-react-native";
 import React, { useEffect, useMemo, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  Modal,
-  TouchableOpacity,
-  TextInput,
-  ScrollView,
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-} from "react-native";
-import { ArrowLeft, Search, Mic, MapPin, X } from "lucide-react-native";
+import { FlatList, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Props = {
   isOpen: boolean;
@@ -36,6 +25,7 @@ export function SearchOverlay({
   const [location, setLocation] = useState(propLocation || "Los Angeles, CA");
   const [isLocationMode, setIsLocationMode] = useState(false);
   const [locationSearchText, setLocationSearchText] = useState("");
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     setSearchText(initialQuery);
@@ -141,7 +131,7 @@ export function SearchOverlay({
           style={styles.modalRoot}
         >
           {/* Header */}
-          <View style={styles.header}>
+          <View style={[styles.header, { paddingTop: Platform.OS === 'android' ? 8 : insets.top }]}>
             {/* Top Bar */}
             <View style={styles.topRow}>
               <TouchableOpacity
@@ -311,8 +301,6 @@ export function SearchOverlay({
             )}
           </View>
 
-          {/* Tap outside to close (optional) */}
-          <Pressable style={styles.tapCatcher} onPress={() => {}} />
         </KeyboardAvoidingView>
       </View>
     </Modal>
@@ -329,9 +317,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   header: {
-    paddingTop: 52,
     paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",
   },
@@ -339,7 +326,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    marginBottom: 10,
+    marginBottom: 6,
   },
   iconHit: {
     width: 40,
@@ -471,11 +458,4 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#111827",
   },
-  tapCatcher: {
-    position: "absolute",
-    left: -9999,
-    top: -9999,
-    right: -9999,
-    bottom: -9999,
-  },
-});
+  });

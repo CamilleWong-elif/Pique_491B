@@ -1,10 +1,14 @@
 import { auth } from '@/firebase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { Eye, EyeOff, Lock, Mail } from 'lucide-react-native';
-import { useState } from 'react';
+import { Check, Eye, EyeOff, Lock, Mail } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
 import { Dimensions, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Rect } from 'react-native-svg';
+
+const REMEMBER_ME_KEY = '@pique_remember_me';
+const SAVED_EMAIL_KEY = '@pique_saved_email';
 
 const logo = require('@/assets/images/temp_logo.png');
 const {width} = Dimensions.get('window');
@@ -21,7 +25,26 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rememberMe, setRememberMe] = useState(false);
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    const loadSavedCredentials = async () => {
+      try {
+        const [savedRememberMe, savedEmail] = await Promise.all([
+          AsyncStorage.getItem(REMEMBER_ME_KEY),
+          AsyncStorage.getItem(SAVED_EMAIL_KEY),
+        ]);
+        if (savedRememberMe === 'true' && savedEmail) {
+          setRememberMe(true);
+          setEmail(savedEmail);
+        }
+      } catch (err) {
+        console.log('Error loading saved credentials:', err);
+      }
+    };
+    loadSavedCredentials();
+  }, []);
   
   const handleSubmit = async () => {
     setError(null);
@@ -34,6 +57,15 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
     setIsSubmitting(true);
     try {
       await signInWithEmailAndPassword(auth, email.trim(), password);
+      
+      if (rememberMe) {
+        await AsyncStorage.setItem(REMEMBER_ME_KEY, 'true');
+        await AsyncStorage.setItem(SAVED_EMAIL_KEY, email.trim());
+      } else {
+        await AsyncStorage.removeItem(REMEMBER_ME_KEY);
+        await AsyncStorage.removeItem(SAVED_EMAIL_KEY);
+      }
+      
       onLogin();
     } catch (err: any) {
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password') {
@@ -114,10 +146,23 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
           </TouchableOpacity>
         </View>
 
-        {/* Forgot Password */}
-        <TouchableOpacity style={styles.forgotPassword}>
-          <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-        </TouchableOpacity>
+        {/* Remember Me & Forgot Password Row */}
+        <View style={styles.rememberForgotRow}>
+          <TouchableOpacity
+            style={styles.rememberMeContainer}
+            onPress={() => setRememberMe(!rememberMe)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
+              {rememberMe && <Check size={14} color="#ffffff" strokeWidth={3} />}
+            </View>
+            <Text style={styles.rememberMeText}>Remember Me</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity>
+            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Sign In Button */}
         <TouchableOpacity
@@ -250,10 +295,34 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 12,
   },
-  forgotPassword: {
-    alignItems: 'flex-end',
-    marginTop: 8,
+  rememberForgotRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
     marginBottom: 8,
+  },
+  rememberMeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 2,
+    borderColor: '#d1d5db',
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  checkboxChecked: {
+    backgroundColor: '#0ea5e9',
+    borderColor: '#0ea5e9',
+  },
+  rememberMeText: {
+    fontSize: 14,
+    color: '#374151',
   },
   forgotPasswordText: {
     fontSize: 14,
