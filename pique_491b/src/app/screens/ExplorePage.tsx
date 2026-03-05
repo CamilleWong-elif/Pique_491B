@@ -1,12 +1,12 @@
 import { NavigationBar } from '@/components/NavigationBar';
+import { auth, db } from "@/firebase";
 import * as Location from 'expo-location';
+import { collection, getDocs } from "firebase/firestore";
 import { ArrowLeft, CircleHelp, Crosshair, Star, Users, X } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Dimensions, PanResponder, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {collection, getDocs} from "firebase/firestore"
-import {auth, db} from "@/firebase"
 
 // Calculate distance between two lat/lng points in miles using Haversine formula
 const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
@@ -104,30 +104,51 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
     })();
   }, []);
 
+  // Map ref for programmatic control
+  const mapRef = useRef<MapView>(null);
+
+  // Recenter map to user's location
+  const handleRecenterMap = () => {
+    if (userLocation && mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: userLocation.lat,
+        longitude: userLocation.lng,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      }, 500);
+    }
+  };
+
   // Draggable bottom sheet
   const MIN_HEIGHT = 200;
-  const MAX_HEIGHT = 650;
+  const MAX_HEIGHT = 725;
   const DEFAULT_HEIGHT = 450;
   const sheetHeight = useRef(new Animated.Value(DEFAULT_HEIGHT)).current;
   const currentHeight = useRef(DEFAULT_HEIGHT);
+  const startHeight = useRef(DEFAULT_HEIGHT);
+  const [controlsVisible, setControlsVisible] = useState(true);
 
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {},
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        startHeight.current = currentHeight.current;
+      },
       onPanResponderMove: (_, gestureState) => {
         const newHeight = Math.min(
-          Math.max(currentHeight.current - gestureState.dy, MIN_HEIGHT),
+          Math.max(startHeight.current - gestureState.dy, MIN_HEIGHT),
           MAX_HEIGHT
         );
         sheetHeight.setValue(newHeight);
       },
       onPanResponderRelease: (_, gestureState) => {
         const newHeight = Math.min(
-          Math.max(currentHeight.current - gestureState.dy, MIN_HEIGHT),
+          Math.max(startHeight.current - gestureState.dy, MIN_HEIGHT),
           MAX_HEIGHT
         );
         currentHeight.current = newHeight;
+        setControlsVisible(newHeight < MAX_HEIGHT);
         Animated.spring(sheetHeight, {
           toValue: newHeight,
           useNativeDriver: false,
@@ -179,20 +200,20 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
 
   return (
     <View style={styles.container}>
-      <View style={[styles.topUI, { paddingTop: insets.top }]}></View>
+      <View style={[styles.topUI, { paddingTop: insets.top }]} pointerEvents="none"></View>
 
     {/* Tentative Google Maps API */}
     <MapView
-      // TBD: Removed PROVIDER_GOOGLE due to Expo Go limitation.
+      ref={mapRef}
       provider={PROVIDER_GOOGLE}
       style={styles.map}
       initialRegion={{
-        latitude: 33.8366,    // Los Angeles area — update to match your mockData
-        longitude: -118.3257,
-        latitudeDelta: 0.15,  // controls zoom level (smaller = more zoomed in)
+        latitude: userLocation?.lat || 33.8366,
+        longitude: userLocation?.lng || -118.3257,
+        latitudeDelta: 0.15,
         longitudeDelta: 0.15,
       }}
-      showsUserLocation={true}  // shows the blue dot for the user's real location
+      showsUserLocation={true}
       showsMyLocationButton={false}
     >
       {/* Event Markers */}
@@ -218,7 +239,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
     </MapView>
 
       {/* Top Search UI */}
-      <View style={styles.topUI}>
+      <View style={styles.topUI} pointerEvents="box-none">
         <View style={styles.searchRow}>
           <TouchableOpacity
             style={styles.backButton}
@@ -266,10 +287,14 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
         </ScrollView>
       </View>
 
-      {/* Map Controls */}
-      <View style={styles.mapControls}>
-        <TouchableOpacity style={styles.mapControlButton}>
-          <Crosshair size={20} color="#374151" />
+      {/* Map Controls - positioned relative to sheet height, hidden at max height */}
+      {controlsVisible && (
+      <Animated.View style={[styles.mapControls, { bottom: Animated.add(sheetHeight, 16) }]}>
+        <TouchableOpacity 
+          style={styles.mapControlButton}
+          onPress={handleRecenterMap}
+        >
+          <Crosshair size={20} color={userLocation ? "#374151" : "#9ca3af"} />
         </TouchableOpacity>
         {showLegend ? (
           <View style={styles.legend}>
@@ -299,7 +324,8 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
             <CircleHelp size={20} color="#374151" />
           </TouchableOpacity>
         )}
-      </View>
+      </Animated.View>
+      )}
 
       {/* Draggable Bottom Sheet */}
       <Animated.View style={[styles.sheet, { height: sheetHeight }]}>
@@ -462,10 +488,10 @@ const styles = StyleSheet.create({
   // Map Controls
   mapControls: {
     position: 'absolute',
-    right: 21,
-    bottom: 470,
+    right: 16,
     zIndex: 30,
     gap: 12,
+    alignItems: 'flex-end',
   },
   mapControlButton: {
     width: 48,

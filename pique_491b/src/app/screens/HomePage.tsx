@@ -1,6 +1,7 @@
 import { NavigationBar } from '@/components/NavigationBar';
 import { NotificationsModal } from '@/components/NotificationsModal';
-import { EventCard, SearchOverlay, SocialActivityCard } from '@/components/Placeholder';
+import { SearchOverlay } from '@/components/SearchOverlay';
+import { EventCard, SocialActivityCard } from '@/components/Placeholder';
 import { Bell, Menu, MessageCircle, Plus, Search } from 'lucide-react-native';
 import { useState } from 'react';
 import { Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
