@@ -1,9 +1,11 @@
 import { NavigationBar } from '@/components/NavigationBar';
 import * as ImagePicker from 'expo-image-picker';
 import { Camera, Pencil, Plus, Ticket, Upload, X } from 'lucide-react-native';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import {
   Alert,
+  FlatList,
   Image,
   Modal,
   Platform,
@@ -17,6 +19,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { addDoc, collection } from 'firebase/firestore';
 import { auth, db } from '@/firebase';
+
+const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
 interface CreateEventPageProps {
   onNavigate: (page: string, eventId?: string, options?: { showPrice?: boolean }) => void;
@@ -44,6 +48,8 @@ const ageRangeOptions = ['Any', 'Under 18', '18+', '21+'];
 export function CreateEventPage({ onNavigate, onOpenMessages, unreadMessageCount, onEventCreated }: CreateEventPageProps) {
   const [eventName, setEventName] = useState('');
   const [date, setDate] = useState('');
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
   const [maxCapacity, setMaxCapacity] = useState('');
@@ -57,7 +63,34 @@ export function CreateEventPage({ onNavigate, onOpenMessages, unreadMessageCount
   const [showTicketModal, setShowTicketModal] = useState(false);
   const [editingTicket, setEditingTicket] = useState<TicketTier | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
+  const [locationSuggestions, setLocationSuggestions] = useState<{ place_id: string; description: string }[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [locationCoords, setLocationCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const insets = useSafeAreaInsets();
+
+  const fetchLocationSuggestions = async (text: string) => {
+    if (text.length < 3) {
+      setLocationSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    try {
+      const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(text)}&key=${GOOGLE_MAPS_API_KEY}`;
+      const response = await fetch(url);
+      const data = await response.json();
+      setLocationSuggestions(data.predictions ?? []);
+      setShowSuggestions(true);
+    } catch {
+      setLocationSuggestions([]);
+    }
+  };
+
+  const handleLocationChange = (text: string) => {
+    setLocation(text);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchLocationSuggestions(text), 400);
+  };
 
   const pickImages = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -161,23 +194,25 @@ export function CreateEventPage({ onNavigate, onOpenMessages, unreadMessageCount
         return;
       }
 
-      await addDoc(collection(db, "events"),{
+      await addDoc(collection(db, "events"), {
         name: eventName,
         description,
         location,
+        ...(locationCoords && { latitude: locationCoords.lat, longitude: locationCoords.lng }),
         date: date,
         maxCapacity: capacityNum,
         ageRange: ageRange,
         categories: selectedCategories,
         ticketTiers,
-        createdBy: auth.currentUser?.uid,
-        createdAt: new Date()
-        
+        ...(auth.currentUser?.uid && { createdBy: auth.currentUser.uid }),
+        createdAt: new Date(),
       });
       if (onEventCreated) onEventCreated();
-      onNavigate('home');
+      console.log('Navigating to event-posted with:', eventName);
+      onNavigate('event-posted', eventName);
     } catch (error) {
-      Alert.alert('Error', 'Failed to create event. Please try again.');
+      console.error('handlePostEvent error:', error);
+      Alert.alert('Error', String(error));
     }
   };
 
@@ -251,13 +286,26 @@ export function CreateEventPage({ onNavigate, onOpenMessages, unreadMessageCount
         <View style={styles.row}>
           <View style={[styles.section, { flex: 2, marginRight: 8 }]}>
             <Text style={styles.sectionLabel}>Date</Text>
-            <TextInput
-              style={styles.input}
-              value={date}
-              onChangeText={setDate}
-              placeholder="MM/DD/YYYY"
-              placeholderTextColor="#9ca3af"
-            />
+            <TouchableOpacity style={styles.input} onPress={() => setShowDatePicker(true)}>
+              <Text style={{ fontSize: 14, color: date ? '#111827' : '#9ca3af' }}>
+                {date || 'Select a date...'}
+              </Text>
+            </TouchableOpacity>
+            {showDatePicker && (
+              <DateTimePicker
+                value={selectedDate}
+                mode="date"
+                display="default"
+                minimumDate={new Date()}
+                onChange={(event: DateTimePickerEvent, picked?: Date) => {
+                  setShowDatePicker(false);
+                  if (event.type === 'set' && picked) {
+                    setSelectedDate(picked);
+                    setDate(picked.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }));
+                  }
+                }}
+              />
+            )}
           </View>
           <View style={[styles.section, { flex: 1 }]}>
             <Text style={styles.sectionLabel}>Max Attendees</Text>
@@ -296,10 +344,37 @@ export function CreateEventPage({ onNavigate, onOpenMessages, unreadMessageCount
           <TextInput
             style={styles.input}
             value={location}
-            onChangeText={setLocation}
+            onChangeText={handleLocationChange}
             placeholder="Enter venue or address..."
             placeholderTextColor="#9ca3af"
           />
+          {showSuggestions && locationSuggestions.length > 0 && (
+            <View style={styles.suggestionsContainer}>
+              {locationSuggestions.map((item, index) => (
+                <TouchableOpacity
+                  key={item.place_id}
+                  style={[
+                    styles.suggestionItem,
+                    index < locationSuggestions.length - 1 && styles.suggestionItemBorder,
+                  ]}
+                  onPress={async () => {
+                    setLocation(item.description);
+                    setShowSuggestions(false);
+                    setLocationSuggestions([]);
+                    try {
+                      const detailUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${item.place_id}&fields=geometry&key=${GOOGLE_MAPS_API_KEY}`;
+                      const res = await fetch(detailUrl);
+                      const detail = await res.json();
+                      const loc = detail.result?.geometry?.location;
+                      if (loc) setLocationCoords({ lat: loc.lat, lng: loc.lng });
+                    } catch {}
+                  }}
+                >
+                  <Text style={styles.suggestionText}>{item.description}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </View>
 
         {/* Categories */}
@@ -790,5 +865,25 @@ const styles = StyleSheet.create({
   },
   pickerOptionTextSelected: {
     color: '#ffffff',
+  },
+  suggestionsContainer: {
+    marginTop: 4,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  suggestionItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  suggestionItemBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  suggestionText: {
+    fontSize: 13,
+    color: '#111827',
   },
 });

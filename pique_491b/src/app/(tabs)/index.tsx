@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { CommunityPage } from '../screens/CommunityPage';
 import { CreateEventPage } from '../screens/CreateEventPage';
+import { EventPostedPage } from '../screens/EventPostedPage';
 import { ExplorePage } from '../screens/ExplorePage';
 import { HomePage } from '../screens/HomePage';
 import { LoginScreen } from '../screens/LoginScreen';
@@ -17,9 +18,12 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showSignUp, setShowSignUp] = useState(false);
   const [currentPage, setCurrentPage] = useState('home');
+  const [postedEventName, setPostedEventName] = useState('');
 
-  const handleNavigate = (page: string) => {
-      setCurrentPage(page);
+  const handleNavigate = (page: string, param?: string) => {
+    console.log('handleNavigate called:', page, param);
+    if (page === 'event-posted' && param) setPostedEventName(param);
+    setCurrentPage(page);
   };
 
   return (
@@ -72,6 +76,9 @@ export default function App() {
         )}
         {!isLoading && isAuthenticated && currentPage === 'settings' && (
           <SettingsScreen onNavigate={handleNavigate} />
+        )}
+        {!isLoading && isAuthenticated && currentPage === 'event-posted' && (
+          <EventPostedPage eventName={postedEventName} onNavigate={handleNavigate} />
         )}
       </View>
     </SafeAreaProvider>
