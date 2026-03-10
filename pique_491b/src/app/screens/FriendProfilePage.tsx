@@ -1,8 +1,9 @@
 // FriendProfileScreen.tsx
 //Mock Data at 100-111, 126-153
 import React, { useMemo, useState, useEffect } from "react";
-import {collection, doc, getDoc} from "firebase/firestore"
-import {auth, db} from "@/firebase";
+import {doc, getDoc} from "firebase/firestore"
+import {db} from "@/firebase";
+import { mockUsers } from "@/mockData/mockUsers";
 import {
   View,
   Text,
@@ -96,14 +97,16 @@ export function FriendProfileScreen({
   const [bookedSortOption, setBookedSortOption] = useState<SortKey>("latest");
   const [showFollowModal, setShowFollowModal] = useState<"followers" | "following" | null>(null);
   const [isFollowing, setIsFollowing] = useState<boolean>(Math.random() > 0.5);
+  const [removedFollowerIds, setRemovedFollowerIds] = useState<Set<string>>(new Set());
+  const [removedFollowingIds, setRemovedFollowingIds] = useState<Set<string>>(new Set());
 
   const [friendData, setFriendData] = useState({
     id: friendName,
     name: "",
     bio: "",
     avatar: getAvatarWithFallback(friendName),
-    followerCount: 0,
-    followingCount: 0,
+    followerUids: [] as string[],
+    followingUids: [] as string[],
   });
 
   useEffect(() => {
@@ -127,12 +130,12 @@ export function FriendProfileScreen({
         const hash = friendName.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
 
         setFriendData({
-          id: userData?.id || friendName, 
+          id: userData?.id || friendName,
           name: userData?.displayName || "",
           bio: userData?.bio || bios[hash % bios.length],
           avatar: userData?.avatar || getAvatarWithFallback(friendName),
-          followerCount: Math.floor(Math.random() * 100) + 1,
-          followingCount: Math.floor(Math.random() * 100) + 1,
+          followerUids: userData?.followerCount ?? [],
+          followingUids: userData?.followingCount ?? [],
         });
       } catch (error) {
         console.error("Error fetching friend data:", error);
@@ -143,90 +146,32 @@ export function FriendProfileScreen({
   }, [friendName, getAvatarWithFallback]);
 
   const mockFollowers = useMemo<UserRow[]>(() => {
-    const names = [
-      "Sarah Chen",
-      "Marcus Johnson",
-      "Emily Davis",
-      "Jordan Lee",
-      "Taylor Brown",
-      "Casey Wilson",
-      "Morgan Taylor",
-      "Riley Martinez",
-      "Quinn Anderson",
-      "Avery Thomas",
-      "Jamie Garcia",
-      "Drew Rodriguez",
-      "Skyler White",
-      "Cameron Harris",
-      "Dakota Moore",
-    ];
-    const bios = [
-      "Photography lover 📸",
-      "Adventure seeker 🏔️",
-      "Music enthusiast 🎵",
-      "Fitness junkie 💪",
-      "Coffee addict ☕",
-      "Travel blogger ✈️",
-      "Foodie explorer 🍜",
-      "Art collector 🎨",
-      "Book worm 📚",
-      "Nature lover 🌲",
-    ];
-
-    return Array.from({ length: friendData.followerCount }, (_, i) => {
-      const nm = names[i % names.length];
-      return {
-        id: `follower-${i}`,
-        name: nm,
-        username: `@${nm.toLowerCase().replace(" ", "_")}${i > names.length - 1 ? i : ""}`,
-        bio: bios[i % bios.length],
-        avatar: `https://i.pravatar.cc/150?img=${(i % 70) + 1}`,
-      };
-    });
-  }, [friendData.followerCount]);
+    const uids = friendData.followerUids;
+    const matched = uids.length > 0
+      ? mockUsers.filter(u => uids.includes(u.uid))
+      : mockUsers.slice(0, 5);
+    return matched.map(u => ({
+      id: u.uid,
+      name: u.displayName,
+      username: `@${u.username}`,
+      bio: u.bio,
+      avatar: u.avatar ?? "",
+    }));
+  }, [friendData.followerUids]);
 
   const mockFollowing = useMemo<UserRow[]>(() => {
-    const names = [
-      "Alex Kim",
-      "Sam Patel",
-      "Jordan Cruz",
-      "Blake Foster",
-      "River Adams",
-      "Phoenix Wright",
-      "Sage Mitchell",
-      "Kai Roberts",
-      "Rowan Clark",
-      "Ember Scott",
-      "Ocean Lewis",
-      "Storm Walker",
-      "Luna Baker",
-      "Nova Green",
-      "Ash Cooper",
-    ];
-    const bios = [
-      "Event planner 🎉",
-      "Digital nomad 💻",
-      "Yoga instructor 🧘",
-      "Chef & baker 👨‍🍳",
-      "Marathon runner 🏃",
-      "DJ & producer 🎧",
-      "Photographer 📷",
-      "Writer ✍️",
-      "Gamer 🎮",
-      "Dancer 💃",
-    ];
-
-    return Array.from({ length: friendData.followingCount }, (_, i) => {
-      const nm = names[i % names.length];
-      return {
-        id: `following-${i}`,
-        name: nm,
-        username: `@${nm.toLowerCase().replace(" ", "_")}${i > names.length - 1 ? i : ""}`,
-        bio: bios[i % bios.length],
-        avatar: `https://i.pravatar.cc/150?img=${((i + 30) % 70) + 1}`,
-      };
-    });
-  }, [friendData.followingCount]);
+    const uids = friendData.followingUids;
+    const matched = uids.length > 0
+      ? mockUsers.filter(u => uids.includes(u.uid))
+      : mockUsers.slice(5);
+    return matched.map(u => ({
+      id: u.uid,
+      name: u.displayName,
+      username: `@${u.username}`,
+      bio: u.bio,
+      avatar: u.avatar ?? "",
+    }));
+  }, [friendData.followingUids]);
 
   // Mock events (same as your web sample)
   const postedEventsRaw = useMemo(() => {
@@ -348,7 +293,7 @@ export function FriendProfileScreen({
                     accessibilityLabel="View followers"
                   >
                     <Text style={styles.stat}>
-                      <Text style={styles.statNum}>{friendData.followerCount}</Text>
+                      <Text style={styles.statNum}>{mockFollowers.length}</Text>
                       <Text style={styles.statLabel}> Followers</Text>
                     </Text>
                   </TouchableOpacity>
@@ -359,7 +304,7 @@ export function FriendProfileScreen({
                     accessibilityLabel="View following"
                   >
                     <Text style={styles.stat}>
-                      <Text style={styles.statNum}>{friendData.followingCount}</Text>
+                      <Text style={styles.statNum}>{mockFollowing.length}</Text>
                       <Text style={styles.statLabel}> Following</Text>
                     </Text>
                   </TouchableOpacity>
@@ -503,7 +448,11 @@ export function FriendProfileScreen({
 
             {/* List */}
             <FlatList
-              data={showFollowModal === "followers" ? mockFollowers : mockFollowing}
+              data={
+                showFollowModal === "followers"
+                  ? mockFollowers.filter(u => !removedFollowerIds.has(u.id))
+                  : mockFollowing.filter(u => !removedFollowingIds.has(u.id))
+              }
               keyExtractor={(u) => u.id}
               renderItem={({ item: user }) => (
                 <View style={styles.userRow}>
@@ -511,7 +460,7 @@ export function FriendProfileScreen({
                     style={styles.userAvatarWrap}
                     onPress={() => {
                       setShowFollowModal(null);
-                      onNavigate("friendProfile", undefined, { friendName: user.name });
+                      onNavigate("friendProfile", undefined, { friendName: user.id });
                     }}
                   >
                     <Image source={{ uri: user.avatar }} style={styles.userAvatar} />
@@ -521,7 +470,7 @@ export function FriendProfileScreen({
                     style={styles.userInfo}
                     onPress={() => {
                       setShowFollowModal(null);
-                      onNavigate("friendProfile", undefined, { friendName: user.name });
+                      onNavigate("friendProfile", undefined, { friendName: user.id });
                     }}
                   >
                     <Text style={styles.userName} numberOfLines={1}>
@@ -530,22 +479,21 @@ export function FriendProfileScreen({
                     <Text style={styles.userMeta} numberOfLines={1}>
                       {user.username}
                     </Text>
-                    <Text style={styles.userMeta2} numberOfLines={1}>
-                      {user.bio}
-                    </Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[
-                      styles.followSmallBtn,
-                      showFollowModal === "followers" ? styles.followSmallOn : styles.followSmallOff,
-                    ]}
+                    style={styles.removeBtn}
                     accessibilityRole="button"
-                    accessibilityLabel={showFollowModal === "followers" ? "Follow" : "Following"}
+                    accessibilityLabel="Remove"
+                    onPress={() => {
+                      if (showFollowModal === "followers") {
+                        setRemovedFollowerIds(prev => new Set([...prev, user.id]));
+                      } else {
+                        setRemovedFollowingIds(prev => new Set([...prev, user.id]));
+                      }
+                    }}
                   >
-                    <Text style={showFollowModal === "followers" ? styles.followSmallTextOn : styles.followSmallTextOff}>
-                      {showFollowModal === "followers" ? "Follow" : "Following"}
-                    </Text>
+                    <Text style={styles.removeBtnText}>Remove</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -663,11 +611,8 @@ const styles = StyleSheet.create({
   userMeta: { fontSize: 12, color: "#6B7280", marginTop: 2 },
   userMeta2: { fontSize: 12, color: "#4B5563", marginTop: 2 },
 
-  followSmallBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
-  followSmallOn: { backgroundColor: "#0EA5E9" },
-  followSmallOff: { backgroundColor: "#E5E7EB" },
-  followSmallTextOn: { color: "#fff", fontSize: 12, fontWeight: "800" },
-  followSmallTextOff: { color: "#374151", fontSize: 12, fontWeight: "800" },
+  removeBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, backgroundColor: "#fee2e2" },
+  removeBtnText: { color: "#dc2626", fontSize: 12, fontWeight: "800" },
 
   userSep: { height: 1, backgroundColor: "#F3F4F6" },
 });

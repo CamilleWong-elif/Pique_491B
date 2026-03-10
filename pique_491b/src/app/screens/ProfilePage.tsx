@@ -1,9 +1,10 @@
 import { NavigationBar } from '@/components/NavigationBar';
 import { useAuth } from '@/context/AuthContext';
 import { auth, db } from '@/firebase';
+import { mockUsers } from '@/mockData/mockUsers';
 import { Calendar, FileText, Heart, Pencil, Plus, X } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, FlatList, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { doc, setDoc } from 'firebase/firestore';
 
 const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1653771926391-d1b5608c90b2?w=400';
@@ -30,13 +31,29 @@ export function ProfilePage({
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [editingName, setEditingName] = useState('');
   const [editingBio, setEditingBio] = useState('');
+  const [removedFollowerIds, setRemovedFollowerIds] = useState<Set<string>>(new Set());
+  const [removedFollowingIds, setRemovedFollowingIds] = useState<Set<string>>(new Set());
 
   const userName = profile?.displayName ?? user?.displayName ?? user?.email ?? 'User';
   const profilePicture = profile?.photoURL ?? user?.photoURL ?? DEFAULT_AVATAR;
   const bio = profile?.bio ?? '';
 
-  const followerCount = useMemo(() => Math.floor(Math.random() * 100) + 1, []);
-  const followingCount = useMemo(() => Math.floor(Math.random() * 100) + 1, []);
+  const followerUids: string[] = (profile?.followerCount ?? []);
+  const followingUids: string[] = (profile?.followingCount ?? []);
+
+  const followers = useMemo(() => {
+    const matched = followerUids.length > 0
+      ? mockUsers.filter(u => followerUids.includes(u.uid))
+      : mockUsers.slice(0, 5);
+    return matched.map(u => ({ id: u.uid, name: u.displayName, username: `@${u.username}`, bio: u.bio, avatar: u.avatar ?? '' }));
+  }, [followerUids]);
+
+  const following = useMemo(() => {
+    const matched = followingUids.length > 0
+      ? mockUsers.filter(u => followingUids.includes(u.uid))
+      : mockUsers.slice(5);
+    return matched.map(u => ({ id: u.uid, name: u.displayName, username: `@${u.username}`, bio: u.bio, avatar: u.avatar ?? '' }));
+  }, [followingUids]);
 
   // Placeholder event lists — will populate when mockData is connected
   const postedEvents: any[] = [];
@@ -110,13 +127,13 @@ export function ProfilePage({
               <View style={styles.statsRow}>
                 <TouchableOpacity onPress={() => setShowFollowModal('followers')}>
                   <Text style={styles.statText}>
-                    <Text style={styles.statNumber}>{followerCount}</Text>
+                    <Text style={styles.statNumber}>{followers.length}</Text>
                     {' '}Followers
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => setShowFollowModal('following')}>
                   <Text style={styles.statText}>
-                    <Text style={styles.statNumber}>{followingCount}</Text>
+                    <Text style={styles.statNumber}>{following.length}</Text>
                     {' '}Following
                   </Text>
                 </TouchableOpacity>
@@ -204,8 +221,8 @@ export function ProfilePage({
       {/* Followers/Following Modal */}
       <Modal visible={!!showFollowModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
+          <View style={[styles.modalContent, { paddingHorizontal: 0, paddingBottom: 0 }]}>
+            <View style={[styles.modalHeader, { paddingHorizontal: 20 }]}>
               <Text style={styles.modalTitle}>
                 {showFollowModal === 'followers' ? 'Followers' : 'Following'}
               </Text>
@@ -213,9 +230,39 @@ export function ProfilePage({
                 <X size={24} color="#6b7280" />
               </TouchableOpacity>
             </View>
-            <Text style={styles.emptyText}>
-              No {showFollowModal} to display yet
-            </Text>
+            <FlatList
+              data={
+                showFollowModal === 'followers'
+                  ? followers.filter(u => !removedFollowerIds.has(u.id))
+                  : following.filter(u => !removedFollowingIds.has(u.id))
+              }
+              keyExtractor={item => item.id}
+              style={{ maxHeight: 420 }}
+              ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: '#f3f4f6' }} />}
+              renderItem={({ item }) => (
+                <View style={styles.userRow}>
+                  <TouchableOpacity onPress={() => { setShowFollowModal(null); onNavigate('friendProfile', undefined, { friendName: item.id }); }}>
+                    <Image source={{ uri: item.avatar }} style={styles.userAvatar} />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={{ flex: 1, minWidth: 0 }} onPress={() => { setShowFollowModal(null); onNavigate('friendProfile', undefined, { friendName: item.id }); }}>
+                    <Text style={styles.userName} numberOfLines={1}>{item.name}</Text>
+                    <Text style={styles.userMeta} numberOfLines={1}>{item.username}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.removeBtn}
+                    onPress={() => {
+                      if (showFollowModal === 'followers') {
+                        setRemovedFollowerIds(prev => new Set([...prev, item.id]));
+                      } else {
+                        setRemovedFollowingIds(prev => new Set([...prev, item.id]));
+                      }
+                    }}
+                  >
+                    <Text style={styles.removeBtnText}>Remove</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            />
           </View>
         </View>
       </Modal>
@@ -422,6 +469,39 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6b7280',
     textAlign: 'center',
+  },
+  userRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  userAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
+  userName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  userMeta: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 2,
+  },
+  removeBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: '#fee2e2',
+  },
+  removeBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#dc2626',
   },
   // Modal
   modalOverlay: {
