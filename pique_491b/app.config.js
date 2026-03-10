@@ -5,7 +5,7 @@ module.exports = {
     name: "PiqueApp",
     slug: "piqueapp",
     scheme: "piqueapp",
-    platforms: ["android"],
+    platforms: ["android", "ios"],
     android: {
       package: "com.piqueapp.main",
       adaptiveIcon: {
@@ -18,6 +18,9 @@ module.exports = {
         }
       }
     },
+    ios: {
+      bundleIdentifier: "com.piqueapp.main",
+    },
     extra: {
       firebase: {
         apiKey: process.env.FIREBASE_API_KEY,
@@ -26,6 +29,11 @@ module.exports = {
         storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
         messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
         appId: process.env.FIREBASE_APP_ID,
+      },
+      googleAuth: {
+        expoClientId: process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID,
+        androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+        iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
       },
     },
   },

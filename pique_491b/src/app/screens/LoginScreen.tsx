@@ -1,7 +1,11 @@
 import { auth } from '@/firebase';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithCredential, signInWithEmailAndPassword } from 'firebase/auth';
+import { getRedirectUrl } from 'expo-auth-session';
+import * as Google from 'expo-auth-session/providers/google';
+import Constants from 'expo-constants';
+import * as WebBrowser from 'expo-web-browser';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Dimensions, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Rect } from 'react-native-svg';
@@ -9,6 +13,16 @@ import Svg, { Path, Rect } from 'react-native-svg';
 const logo = require('@/assets/images/temp_logo.png');
 const {width} = Dimensions.get('window');
 const LOGO_SIZE = width * 0.4;
+
+WebBrowser.maybeCompleteAuthSession();
+
+const googleAuthConfig = Constants.expoConfig?.extra?.googleAuth as
+  | {
+      expoClientId?: string;
+      androidClientId?: string;
+      iosClientId?: string;
+    }
+  | undefined;
 
 interface LoginScreenProps {
   onLogin: () => void;
@@ -22,6 +36,46 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
+  const [googleRequest, googleResponse, promptGoogleAsync] = Google.useIdTokenAuthRequest(
+    {
+      clientId: googleAuthConfig?.expoClientId,
+      expoClientId: googleAuthConfig?.expoClientId,
+      androidClientId: googleAuthConfig?.androidClientId,
+      iosClientId: googleAuthConfig?.iosClientId,
+      // Must be in config so Google receives this URL. redirectUriOptions (useProxy) is ignored by makeRedirectUri.
+      redirectUri: Constants.expoConfig?.originalFullName
+        ? getRedirectUrl()
+        : undefined,
+    },
+    {}
+  );
+
+  useEffect(() => {
+    const handleGoogleResponse = async () => {
+      console.log('Google auth response:', JSON.stringify(googleResponse, null, 2));
+      if (!googleResponse || googleResponse.type !== 'success') return;
+
+      const idToken = googleResponse.params.id_token;
+      if (!idToken) {
+        setError('Google sign in failed. Please try again.');
+        return;
+      }
+
+      try {
+        setIsSubmitting(true);
+        const credential = GoogleAuthProvider.credential(idToken);
+        await signInWithCredential(auth, credential);
+        onLogin();
+      } catch (err) {
+        console.log('Firebase Google login error:', err);
+        setError('Unable to sign in with Google. Please try again.');
+      } finally {
+        setIsSubmitting(false);
+      }
+    };
+
+    handleGoogleResponse();
+  }, [googleResponse, onLogin]);
   
   const handleSubmit = async () => {
     setError(null);
@@ -51,9 +105,18 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setError(null);
+    try {
+      await promptGoogleAsync();
+    } catch (err) {
+      console.log('Error starting Google sign in:', err);
+      setError('Unable to start Google sign in. Please try again.');
+    }
+  };
+
   const handleSocialLogin = (provider: string) => {
-    console.log(`Logging in with ${provider}`);
-    onLogin();
+    setError(`${provider} sign in is not available yet.`);
   };
 
   return (
@@ -140,7 +203,8 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
         {/* Google Button */}
         <TouchableOpacity
           style={styles.socialButton}
-          onPress={() => handleSocialLogin('Google')}
+        onPress={handleGoogleSignIn}
+        disabled={isSubmitting || !googleRequest}
         >
           <Svg width={20} height={20} viewBox="0 0 24 24">
             <Path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />

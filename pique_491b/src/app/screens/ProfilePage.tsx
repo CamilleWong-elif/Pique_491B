@@ -31,7 +31,7 @@ export function ProfilePage({
   const [editingName, setEditingName] = useState('');
   const [editingBio, setEditingBio] = useState('');
 
-  const userName = profile?.displayName ?? user?.displayName ?? user?.email ?? 'User';
+  const userName = profile?.username ?? user?.displayName ?? user?.email ?? 'User';
   const profilePicture = profile?.photoURL ?? user?.photoURL ?? DEFAULT_AVATAR;
   const bio = profile?.bio ?? '';
 

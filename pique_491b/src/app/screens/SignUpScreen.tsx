@@ -1,4 +1,4 @@
-import { auth } from '@/firebase';
+import { auth, db } from '@/firebase';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { Calendar, Check, Eye, EyeOff, Lock, Mail, User, X } from 'lucide-react-native';
@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useColorScheme, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Rect } from 'react-native-svg';
+import { doc, setDoc } from 'firebase/firestore';
 
 const colorScheme = useColorScheme();
 const logo = require('@/assets/images/temp_logo.png');
@@ -117,8 +118,23 @@ export function SignUpScreen({ onSignUp, onNavigateToLogin }: SignUpScreenProps)
           formData.password
         );
         await updateProfile(userCredential.user, {
-          displayName: formData.fullName,
+          displayName: formData.username,
         });
+
+        const uid = userCredential.user.uid;
+        await setDoc(
+          doc(db, 'users', uid),
+          {
+            username: formData.username.trim(),
+            fullName: formData.fullName.trim(),
+            email: formData.email.trim(),
+            dateOfBirth: dateOfBirth.toISOString(),
+            photoURL: userCredential.user.photoURL ?? null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          { merge: true }
+        );
         console.log('Firebase user created:', userCredential.user);
         onSignUp();
       } catch (error: any) {
