@@ -1,7 +1,10 @@
 import { NavigationBar } from '@/components/NavigationBar';
-import { Globe, Info, Trophy, Users, X } from 'lucide-react-native';
-import { useState } from 'react';
-import { Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useAuth } from '@/context/AuthContext';
+import { auth, db } from '@/firebase';
+import { arrayRemove, arrayUnion, collection, endAt, getDocs, orderBy, query, startAt, updateDoc, doc } from 'firebase/firestore';
+import { Globe, Info, Search, Trophy, Users, X } from 'lucide-react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 // Placeholder data
 const mockFriends: any[] = [];
@@ -9,7 +12,7 @@ const mockFriendRatedEvents: any[] = [];
 const mockEvents: any[] = [];
 const globalLeaderboardUsers: any[] = [];
 
-type Tab = 'leaderboard' | 'reviews';
+type Tab = 'leaderboard' | 'reviews' | 'find';
 type LeaderboardMode = 'global' | 'friends';
 
 interface CommunityPageProps {
@@ -19,9 +22,59 @@ interface CommunityPageProps {
 }
 
 export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }: CommunityPageProps) {
+  const { profile } = useAuth();
+  const currentUid = auth.currentUser?.uid ?? '';
+  const [followingSet, setFollowingSet] = useState<Set<string>>(new Set(profile?.followingCount ?? []));
   const [activeTab, setActiveTab] = useState<Tab>('leaderboard');
   const [showPointsModal, setShowPointsModal] = useState(false);
   const [leaderboardMode, setLeaderboardMode] = useState<LeaderboardMode>('friends');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setFollowingSet(new Set(profile?.followingCount ?? []));
+  }, [profile?.followingCount]);
+
+  const handleFollowToggle = async (targetUid: string) => {
+    if (!currentUid || currentUid === targetUid) return;
+    const myRef = doc(db, 'users', currentUid);
+    const theirRef = doc(db, 'users', targetUid);
+    if (followingSet.has(targetUid)) {
+      await updateDoc(myRef, { followingCount: arrayRemove(targetUid) });
+      await updateDoc(theirRef, { followerCount: arrayRemove(currentUid) });
+      setFollowingSet(prev => { const s = new Set(prev); s.delete(targetUid); return s; });
+    } else {
+      await updateDoc(myRef, { followingCount: arrayUnion(targetUid) });
+      await updateDoc(theirRef, { followerCount: arrayUnion(currentUid) });
+      setFollowingSet(prev => new Set([...prev, targetUid]));
+    }
+  };
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) { setSearchResults([]); return; }
+
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const q1 = query(
+          collection(db, 'users'),
+          orderBy('username'),
+          startAt(q),
+          endAt(q + '\uf8ff')
+        );
+        const snap = await getDocs(q1);
+        setSearchResults(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (e) {
+        console.error('User search error:', e);
+      } finally {
+        setSearching(false);
+      }
+    }, 400);
+  }, [searchQuery]);
 
   const getTrophyColor = (rank: number) => {
     switch (rank) {
@@ -67,7 +120,15 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
               onPress={() => setActiveTab('reviews')}
             >
               <Text style={[styles.tabText, activeTab === 'reviews' && styles.tabTextActive]}>
-                Friend Reviews
+                Reviews
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'find' && styles.tabActive]}
+              onPress={() => setActiveTab('find')}
+            >
+              <Text style={[styles.tabText, activeTab === 'find' && styles.tabTextActive]}>
+                Find People
               </Text>
             </TouchableOpacity>
           </View>
@@ -205,6 +266,70 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
             })}
           </View>
         )}
+        {/* Find People Tab */}
+        {activeTab === 'find' && (
+          <View style={styles.tabContent}>
+            <View style={styles.searchBar}>
+              <Search size={18} color="#9ca3af" />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search by username..."
+                placeholderTextColor="#9ca3af"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                  <X size={16} color="#9ca3af" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {searching && <ActivityIndicator style={{ marginTop: 24 }} color="#3b82f6" />}
+
+            {!searching && searchQuery.trim().length > 0 && searchResults.length === 0 && (
+              <Text style={styles.emptyText}>No users found for "{searchQuery}"</Text>
+            )}
+
+            {!searching && searchQuery.trim().length === 0 && (
+              <Text style={styles.emptyText}>Start typing to find people</Text>
+            )}
+
+            {searchResults.map(user => {
+              const isMe = user.id === currentUid;
+              const isFollowing = followingSet.has(user.id);
+              return (
+                <TouchableOpacity
+                  key={user.id}
+                  style={styles.userRow}
+                  onPress={() => onNavigate('friendProfile', undefined, { friendName: user.id })}
+                >
+                  <Image
+                    source={{ uri: user.avatar ?? 'https://i.pravatar.cc/150?img=0' }}
+                    style={styles.userAvatar}
+                  />
+                  <View style={styles.userInfo}>
+                    <Text style={styles.userDisplayName}>{user.displayName}</Text>
+                    <Text style={styles.userUsername}>@{user.username}</Text>
+                  </View>
+                  {!isMe && (
+                    <TouchableOpacity
+                      style={[styles.followBtn, isFollowing && styles.followingBtn]}
+                      onPress={(e) => { e.stopPropagation?.(); handleFollowToggle(user.id); }}
+                    >
+                      <Text style={[styles.followBtnText, isFollowing && styles.followingBtnText]}>
+                        {isFollowing ? 'Following' : 'Follow'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
       </ScrollView>
 
       <NavigationBar
@@ -448,6 +573,64 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     textAlign: 'center',
     marginTop: 8,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 16,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#111827',
+  },
+  userRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  userAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+  },
+  userInfo: {
+    flex: 1,
+  },
+  userDisplayName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  userUsername: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginTop: 2,
+  },
+  followBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    backgroundColor: '#3b82f6',
+    borderRadius: 8,
+  },
+  followBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  followingBtn: {
+    backgroundColor: '#e5e7eb',
+  },
+  followingBtnText: {
+    color: '#374151',
   },
   // Modal
   modalOverlay: {
