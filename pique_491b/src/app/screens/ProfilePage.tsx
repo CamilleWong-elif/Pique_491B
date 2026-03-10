@@ -1,11 +1,10 @@
 import { NavigationBar } from '@/components/NavigationBar';
 import { useAuth } from '@/context/AuthContext';
 import { auth, db } from '@/firebase';
-import { mockUsers } from '@/mockData/mockUsers';
 import { Calendar, FileText, Heart, Pencil, Plus, X } from 'lucide-react-native';
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, FlatList, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { arrayRemove, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { arrayRemove, collection, doc, documentId, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
 
 const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1653771926391-d1b5608c90b2?w=400';
 
@@ -41,19 +40,30 @@ export function ProfilePage({
   const followerUids: string[] = (profile?.followerCount ?? []);
   const followingUids: string[] = (profile?.followingCount ?? []);
 
-  const followers = useMemo(() => {
-    const matched = followerUids.length > 0
-      ? mockUsers.filter(u => followerUids.includes(u.uid))
-      : mockUsers.slice(0, 5);
-    return matched.map(u => ({ id: u.uid, name: u.displayName, username: `@${u.username}`, bio: u.bio, avatar: u.avatar ?? '' }));
-  }, [followerUids]);
+  const [followers, setFollowers] = useState<{ id: string; name: string; username: string; avatar: string }[]>([]);
+  const [following, setFollowing] = useState<{ id: string; name: string; username: string; avatar: string }[]>([]);
 
-  const following = useMemo(() => {
-    const matched = followingUids.length > 0
-      ? mockUsers.filter(u => followingUids.includes(u.uid))
-      : mockUsers.slice(5);
-    return matched.map(u => ({ id: u.uid, name: u.displayName, username: `@${u.username}`, bio: u.bio, avatar: u.avatar ?? '' }));
-  }, [followingUids]);
+  useEffect(() => {
+    if (followerUids.length === 0) { setFollowers([]); return; }
+    getDocs(query(collection(db, 'users'), where(documentId(), 'in', followerUids)))
+      .then(snap => setFollowers(snap.docs.map(d => ({
+        id: d.id,
+        name: d.data().displayName ?? '',
+        username: `@${d.data().username ?? ''}`,
+        avatar: d.data().avatar ?? '',
+      }))));
+  }, [followerUids.join(',')]);
+
+  useEffect(() => {
+    if (followingUids.length === 0) { setFollowing([]); return; }
+    getDocs(query(collection(db, 'users'), where(documentId(), 'in', followingUids)))
+      .then(snap => setFollowing(snap.docs.map(d => ({
+        id: d.id,
+        name: d.data().displayName ?? '',
+        username: `@${d.data().username ?? ''}`,
+        avatar: d.data().avatar ?? '',
+      }))));
+  }, [followingUids.join(',')]);
 
   // Placeholder event lists — will populate when mockData is connected
   const postedEvents: any[] = [];

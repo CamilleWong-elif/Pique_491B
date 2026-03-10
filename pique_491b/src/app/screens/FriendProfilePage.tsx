@@ -1,9 +1,8 @@
 // FriendProfileScreen.tsx
 //Mock Data at 100-111, 126-153
 import React, { useMemo, useState, useEffect } from "react";
-import { arrayRemove, arrayUnion, doc, getDoc, updateDoc } from "firebase/firestore"
+import { arrayRemove, arrayUnion, collection, doc, documentId, getDocs, getDoc, query, updateDoc, where } from "firebase/firestore"
 import { auth, db } from "@/firebase";
-import { mockUsers } from "@/mockData/mockUsers";
 import {
   View,
   Text,
@@ -163,33 +162,34 @@ export function FriendProfileScreen({
     fetchFriendData();
   }, [friendName, getAvatarWithFallback]);
 
-  const mockFollowers = useMemo<UserRow[]>(() => {
-    const uids = friendData.followerUids;
-    const matched = uids.length > 0
-      ? mockUsers.filter(u => uids.includes(u.uid))
-      : mockUsers.slice(0, 5);
-    return matched.map(u => ({
-      id: u.uid,
-      name: u.displayName,
-      username: `@${u.username}`,
-      bio: u.bio,
-      avatar: u.avatar ?? "",
-    }));
-  }, [friendData.followerUids]);
+  const [mockFollowers, setMockFollowers] = useState<UserRow[]>([]);
+  const [mockFollowing, setMockFollowing] = useState<UserRow[]>([]);
 
-  const mockFollowing = useMemo<UserRow[]>(() => {
+  useEffect(() => {
+    const uids = friendData.followerUids;
+    if (uids.length === 0) { setMockFollowers([]); return; }
+    getDocs(query(collection(db, "users"), where(documentId(), "in", uids)))
+      .then(snap => setMockFollowers(snap.docs.map(d => ({
+        id: d.id,
+        name: d.data().displayName ?? "",
+        username: `@${d.data().username ?? ""}`,
+        bio: d.data().bio ?? "",
+        avatar: d.data().avatar ?? "",
+      }))));
+  }, [friendData.followerUids.join(",")]);
+
+  useEffect(() => {
     const uids = friendData.followingUids;
-    const matched = uids.length > 0
-      ? mockUsers.filter(u => uids.includes(u.uid))
-      : mockUsers.slice(5);
-    return matched.map(u => ({
-      id: u.uid,
-      name: u.displayName,
-      username: `@${u.username}`,
-      bio: u.bio,
-      avatar: u.avatar ?? "",
-    }));
-  }, [friendData.followingUids]);
+    if (uids.length === 0) { setMockFollowing([]); return; }
+    getDocs(query(collection(db, "users"), where(documentId(), "in", uids)))
+      .then(snap => setMockFollowing(snap.docs.map(d => ({
+        id: d.id,
+        name: d.data().displayName ?? "",
+        username: `@${d.data().username ?? ""}`,
+        bio: d.data().bio ?? "",
+        avatar: d.data().avatar ?? "",
+      }))));
+  }, [friendData.followingUids.join(",")]);
 
   // Mock events (same as your web sample)
   const postedEventsRaw = useMemo(() => {
