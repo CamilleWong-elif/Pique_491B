@@ -5,7 +5,7 @@ import { mockUsers } from '@/mockData/mockUsers';
 import { Calendar, FileText, Heart, Pencil, Plus, X } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { Alert, FlatList, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { doc, setDoc } from 'firebase/firestore';
+import { arrayRemove, doc, setDoc, updateDoc } from 'firebase/firestore';
 
 const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1653771926391-d1b5608c90b2?w=400';
 
@@ -245,15 +245,23 @@ export function ProfilePage({
                     <Image source={{ uri: item.avatar }} style={styles.userAvatar} />
                   </TouchableOpacity>
                   <TouchableOpacity style={{ flex: 1, minWidth: 0 }} onPress={() => { setShowFollowModal(null); onNavigate('friendProfile', undefined, { friendName: item.id }); }}>
-                    <Text style={styles.userName} numberOfLines={1}>{item.name}</Text>
+                    <Text style={styles.modalUserName} numberOfLines={1}>{item.name}</Text>
                     <Text style={styles.userMeta} numberOfLines={1}>{item.username}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.removeBtn}
-                    onPress={() => {
+                    onPress={async () => {
+                      const myUid = auth.currentUser?.uid;
+                      if (!myUid) return;
                       if (showFollowModal === 'followers') {
+                        // Remove them from my followerCount; remove me from their followingCount
+                        await updateDoc(doc(db, 'users', myUid), { followerCount: arrayRemove(item.id) });
+                        await updateDoc(doc(db, 'users', item.id), { followingCount: arrayRemove(myUid) });
                         setRemovedFollowerIds(prev => new Set([...prev, item.id]));
                       } else {
+                        // Remove them from my followingCount; remove me from their followerCount
+                        await updateDoc(doc(db, 'users', myUid), { followingCount: arrayRemove(item.id) });
+                        await updateDoc(doc(db, 'users', item.id), { followerCount: arrayRemove(myUid) });
                         setRemovedFollowingIds(prev => new Set([...prev, item.id]));
                       }
                     }}
@@ -482,7 +490,7 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 24,
   },
-  userName: {
+  modalUserName: {
     fontSize: 14,
     fontWeight: '700',
     color: '#111827',
