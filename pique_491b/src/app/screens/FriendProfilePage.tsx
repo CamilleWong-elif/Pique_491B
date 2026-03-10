@@ -1,8 +1,8 @@
 // FriendProfileScreen.tsx
 //Mock Data at 100-111, 126-153
 import React, { useMemo, useState, useEffect } from "react";
-import {doc, getDoc} from "firebase/firestore"
-import {db} from "@/firebase";
+import { arrayRemove, arrayUnion, doc, getDoc, updateDoc } from "firebase/firestore"
+import { auth, db } from "@/firebase";
 import { mockUsers } from "@/mockData/mockUsers";
 import {
   View,
@@ -96,9 +96,27 @@ export function FriendProfileScreen({
   const [likedSortOption, setLikedSortOption] = useState<SortKey>("latest");
   const [bookedSortOption, setBookedSortOption] = useState<SortKey>("latest");
   const [showFollowModal, setShowFollowModal] = useState<"followers" | "following" | null>(null);
-  const [isFollowing, setIsFollowing] = useState<boolean>(Math.random() > 0.5);
+  const currentUid = auth.currentUser?.uid ?? "";
   const [removedFollowerIds, setRemovedFollowerIds] = useState<Set<string>>(new Set());
   const [removedFollowingIds, setRemovedFollowingIds] = useState<Set<string>>(new Set());
+
+  // true if the current user's UID is in the friend's followerCount array
+  const isFollowing = currentUid ? friendData.followerUids.includes(currentUid) : false;
+
+  const handleFollowToggle = async () => {
+    if (!currentUid) return;
+    const friendRef = doc(db, "users", friendName);
+    const myRef = doc(db, "users", currentUid);
+    if (isFollowing) {
+      await updateDoc(friendRef, { followerCount: arrayRemove(currentUid) });
+      await updateDoc(myRef, { followingCount: arrayRemove(friendName) });
+      setFriendData(prev => ({ ...prev, followerUids: prev.followerUids.filter(id => id !== currentUid) }));
+    } else {
+      await updateDoc(friendRef, { followerCount: arrayUnion(currentUid) });
+      await updateDoc(myRef, { followingCount: arrayUnion(friendName) });
+      setFriendData(prev => ({ ...prev, followerUids: [...prev.followerUids, currentUid] }));
+    }
+  };
 
   const [friendData, setFriendData] = useState({
     id: friendName,
@@ -315,7 +333,7 @@ export function FriendProfileScreen({
             {/* Follow / Message */}
             <View style={styles.actionRow}>
               <TouchableOpacity
-                onPress={() => setIsFollowing((v) => !v)}
+                onPress={handleFollowToggle}
                 style={[styles.actionBtn, isFollowing ? styles.followingBtn : styles.followBtn]}
                 activeOpacity={0.9}
                 accessibilityRole="button"
@@ -485,10 +503,16 @@ export function FriendProfileScreen({
                     style={styles.removeBtn}
                     accessibilityRole="button"
                     accessibilityLabel="Remove"
-                    onPress={() => {
+                    onPress={async () => {
                       if (showFollowModal === "followers") {
+                        // Remove them from our followerCount, remove us from their followingCount
+                        await updateDoc(doc(db, "users", friendName), { followerCount: arrayRemove(user.id) });
+                        await updateDoc(doc(db, "users", user.id), { followingCount: arrayRemove(friendName) });
                         setRemovedFollowerIds(prev => new Set([...prev, user.id]));
                       } else {
+                        // Remove them from our followingCount, remove us from their followerCount
+                        await updateDoc(doc(db, "users", friendName), { followingCount: arrayRemove(user.id) });
+                        await updateDoc(doc(db, "users", user.id), { followerCount: arrayRemove(friendName) });
                         setRemovedFollowingIds(prev => new Set([...prev, user.id]));
                       }
                     }}
