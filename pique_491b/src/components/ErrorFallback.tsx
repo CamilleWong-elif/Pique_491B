@@ -1,22 +1,22 @@
-import { AlertTriangle, RefreshCw, Home } from 'lucide-react-native';
+import { AlertTriangle, Home, RefreshCw } from 'lucide-react-native';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-interface ErrorFallbackProps {
+type Props = {
   error?: Error | null;
   onRetry?: () => void;
   onGoHome?: () => void;
   title?: string;
   message?: string;
-}
+};
 
 export function ErrorFallback({
   error,
   onRetry,
   onGoHome,
   title = 'Something went wrong',
-  message = "We encountered an unexpected error. Please try again.",
-}: ErrorFallbackProps) {
+  message = 'We encountered an unexpected error. Please try again.',
+}: Props) {
   const insets = useSafeAreaInsets();
 
   return (
@@ -24,31 +24,31 @@ export function ErrorFallback({
       <View style={styles.iconContainer}>
         <AlertTriangle size={64} color="#ef4444" />
       </View>
-      
+
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.message}>{message}</Text>
-      
-      {__DEV__ && error && (
+
+      {__DEV__ && error ? (
         <View style={styles.errorDetails}>
           <Text style={styles.errorTitle}>Error Details:</Text>
           <Text style={styles.errorText}>{error.message}</Text>
         </View>
-      )}
+      ) : null}
 
       <View style={styles.buttonContainer}>
-        {onRetry && (
+        {onRetry ? (
           <TouchableOpacity style={styles.retryButton} onPress={onRetry}>
             <RefreshCw size={20} color="#ffffff" />
             <Text style={styles.retryButtonText}>Try Again</Text>
           </TouchableOpacity>
-        )}
-        
-        {onGoHome && (
+        ) : null}
+
+        {onGoHome ? (
           <TouchableOpacity style={styles.homeButton} onPress={onGoHome}>
             <Home size={20} color="#0ea5e9" />
             <Text style={styles.homeButtonText}>Go Home</Text>
           </TouchableOpacity>
-        )}
+        ) : null}
       </View>
     </View>
   );

@@ -228,3 +228,5 @@ const styles = StyleSheet.create({
   secondaryBtn: { backgroundColor: "#E5E7EB", marginTop: 14 },
   secondaryText: { color: "#111", fontSize: 16, fontWeight: "900" },
 });
+
+export default PaymentSuccessScreen;

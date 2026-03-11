@@ -640,3 +640,5 @@ const styles = StyleSheet.create({
 
   userSep: { height: 1, backgroundColor: "#F3F4F6" },
 });
+
+export default FriendProfileScreen;
