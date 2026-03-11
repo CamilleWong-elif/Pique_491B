@@ -1,49 +1,44 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { ErrorFallback } from './ErrorFallback';
+import { ErrorFallback } from '@/components/ErrorFallback';
+import React from 'react';
 
-interface Props {
-  children: ReactNode;
-  fallback?: ReactNode;
-  onError?: (error: Error, errorInfo: ErrorInfo) => void;
-}
+type Props = {
+  children: React.ReactNode;
+  onReset?: () => void;
+};
 
-interface State {
-  hasError: boolean;
+type State = {
   error: Error | null;
-}
+};
 
-export class ErrorBoundary extends Component<Props, State> {
-  constructor(props: Props) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
+export class ErrorBoundary extends React.Component<Props, State> {
+  state: State = { error: null };
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    return { error };
   }
 
-  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
-    this.props.onError?.(error, errorInfo);
+  componentDidCatch(error: Error) {
+    if (__DEV__) {
+      // eslint-disable-next-line no-console
+      console.error('ErrorBoundary caught an error:', error);
+    }
   }
 
-  handleRetry = () => {
-    this.setState({ hasError: false, error: null });
+  private retry = () => {
+    this.setState({ error: null });
+    this.props.onReset?.();
   };
 
   render() {
-    if (this.state.hasError) {
-      if (this.props.fallback) {
-        return this.props.fallback;
-      }
+    if (this.state.error) {
       return (
         <ErrorFallback
           error={this.state.error}
-          onRetry={this.handleRetry}
+          onRetry={this.retry}
+          onGoHome={this.retry}
         />
       );
     }
-
     return this.props.children;
   }
 }
