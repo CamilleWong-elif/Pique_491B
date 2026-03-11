@@ -656,3 +656,5 @@ const styles = StyleSheet.create({
   userName: { fontSize: 15, fontWeight: "700", color: "#111" },
   userSub: { fontSize: 13, color: "#4B5563", marginTop: 2 },
 });
+
+export default EventDetailScreen;

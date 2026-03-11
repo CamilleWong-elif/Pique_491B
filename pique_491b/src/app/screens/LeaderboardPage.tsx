@@ -294,3 +294,5 @@ const styles = StyleSheet.create({
   emptyTitle: { color: "#6B7280", fontSize: 14, fontWeight: "700" },
   emptySub: { marginTop: 6, color: "#9CA3AF", fontSize: 13, textAlign: "center" },
 });
+
+export default LeaderboardScreen;
