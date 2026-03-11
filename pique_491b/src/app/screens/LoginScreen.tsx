@@ -1,9 +1,7 @@
 import { auth } from '@/firebase';
 import { GoogleAuthProvider, signInWithCredential, signInWithEmailAndPassword } from 'firebase/auth';
-import { getRedirectUrl } from 'expo-auth-session';
-import * as Google from 'expo-auth-session/providers/google';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import Constants from 'expo-constants';
-import * as WebBrowser from 'expo-web-browser';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Dimensions, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -11,17 +9,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Rect } from 'react-native-svg';
 
 const logo = require('@/assets/images/temp_logo.png');
-const {width} = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 const LOGO_SIZE = width * 0.4;
 
-WebBrowser.maybeCompleteAuthSession();
-
 const googleAuthConfig = Constants.expoConfig?.extra?.googleAuth as
-  | {
-      expoClientId?: string;
-      androidClientId?: string;
-      iosClientId?: string;
-    }
+  | { webClientId?: string }
   | undefined;
 
 interface LoginScreenProps {
@@ -36,47 +28,16 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
-  const [googleRequest, googleResponse, promptGoogleAsync] = Google.useIdTokenAuthRequest(
-    {
-      clientId: googleAuthConfig?.expoClientId,
-      expoClientId: googleAuthConfig?.expoClientId,
-      androidClientId: googleAuthConfig?.androidClientId,
-      iosClientId: googleAuthConfig?.iosClientId,
-      // Must be in config so Google receives this URL. redirectUriOptions (useProxy) is ignored by makeRedirectUri.
-      redirectUri: Constants.expoConfig?.originalFullName
-        ? getRedirectUrl()
-        : undefined,
-    },
-    {}
-  );
 
+  // Configure Google Sign-In once on mount
   useEffect(() => {
-    const handleGoogleResponse = async () => {
-      console.log('Google auth response:', JSON.stringify(googleResponse, null, 2));
-      if (!googleResponse || googleResponse.type !== 'success') return;
+    console.log('webClientId:', googleAuthConfig?.webClientId);
+    GoogleSignin.configure({
+      webClientId: googleAuthConfig?.webClientId,
+      offlineAccess: true,
+    });
+  }, []);
 
-      const idToken = googleResponse.params.id_token;
-      if (!idToken) {
-        setError('Google sign in failed. Please try again.');
-        return;
-      }
-
-      try {
-        setIsSubmitting(true);
-        const credential = GoogleAuthProvider.credential(idToken);
-        await signInWithCredential(auth, credential);
-        onLogin();
-      } catch (err) {
-        console.log('Firebase Google login error:', err);
-        setError('Unable to sign in with Google. Please try again.');
-      } finally {
-        setIsSubmitting(false);
-      }
-    };
-
-    handleGoogleResponse();
-  }, [googleResponse, onLogin]);
-  
   const handleSubmit = async () => {
     setError(null);
 
@@ -107,11 +68,37 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
 
   const handleGoogleSignIn = async () => {
     setError(null);
+    setIsSubmitting(true);
+
     try {
-      await promptGoogleAsync();
-    } catch (err) {
-      console.log('Error starting Google sign in:', err);
-      setError('Unable to start Google sign in. Please try again.');
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      const signInResult = await GoogleSignin.signIn();
+
+      // Get the ID token from the sign-in result
+      const idToken = signInResult.data?.idToken;
+      if (!idToken) {
+        setError('Google sign in failed — no ID token received.');
+        return;
+      }
+
+      // Use the token to sign into Firebase
+      const credential = GoogleAuthProvider.credential(idToken);
+      await signInWithCredential(auth, credential);
+      onLogin();
+    } catch (err: any) {
+      if (err.code === statusCodes.SIGN_IN_CANCELLED) {
+        // User cancelled — not an error
+        console.log('User cancelled Google sign in');
+      } else if (err.code === statusCodes.IN_PROGRESS) {
+        setError('Sign in already in progress.');
+      } else if (err.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        setError('Google Play Services not available.');
+      } else {
+        setError('Unable to sign in with Google. Please try again.');
+        console.log('Google sign in error:', JSON.stringify(err, null, 2));
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -203,8 +190,8 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
         {/* Google Button */}
         <TouchableOpacity
           style={styles.socialButton}
-        onPress={handleGoogleSignIn}
-        disabled={isSubmitting || !googleRequest}
+          onPress={handleGoogleSignIn}
+          disabled={isSubmitting}
         >
           <Svg width={20} height={20} viewBox="0 0 24 24">
             <Path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
