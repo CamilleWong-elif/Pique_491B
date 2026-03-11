@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { CommunityPage } from '../screens/CommunityPage';
 import { CreateEventPage } from '../screens/CreateEventPage';
 import { EventPostedPage } from '../screens/EventPostedPage';
@@ -21,14 +22,22 @@ export default function App() {
   const [postedEventName, setPostedEventName] = useState('');
 
   const handleNavigate = (page: string, param?: string) => {
-    console.log('handleNavigate called:', page, param);
+    if (__DEV__) {
+      // eslint-disable-next-line no-console
+      console.log('handleNavigate called:', page, param);
+    }
+    // Be explicit: an empty/whitespace route is a bug and should be surfaced.
+    if (typeof page !== 'string' || page.trim().length === 0) {
+      throw new Error(`handleNavigate received an invalid page: ${JSON.stringify(page)}`);
+    }
     if (page === 'event-posted' && param) setPostedEventName(param);
     setCurrentPage(page);
   };
 
   return (
     <SafeAreaProvider>
-      <View style={styles.container}>
+      <ErrorBoundary onReset={() => setCurrentPage('home')}>
+        <View style={styles.container}>
         {/* Show splash screen on launch */}
         {isLoading && (
           <SplashScreen onComplete={() => setIsLoading(false)} />
@@ -80,7 +89,8 @@ export default function App() {
         {!isLoading && isAuthenticated && currentPage === 'event-posted' && (
           <EventPostedPage eventName={postedEventName} onNavigate={handleNavigate} />
         )}
-      </View>
+        </View>
+      </ErrorBoundary>
     </SafeAreaProvider>
   );
 }

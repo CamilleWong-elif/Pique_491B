@@ -887,3 +887,5 @@ const styles = StyleSheet.create({
     color: '#111827',
   },
 });
+
+export default CreateEventPage;

@@ -1,10 +1,11 @@
+import { EventCard } from '@/components/EventCard';
 import { NavigationBar } from '@/components/NavigationBar';
 import { auth, db } from "@/firebase";
 import * as Location from 'expo-location';
 import { collection, getDocs } from "firebase/firestore";
 import { ArrowLeft, CircleHelp, Crosshair, Star, Users, X } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Dimensions, PanResponder, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Animated, Dimensions, Image, PanResponder, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -43,25 +44,118 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
   const [friends, setFriends] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [cityCoordsCache, setCityCoordsCache] = useState<Record<string, { lat: number; lng: number }>>({});
+  const [selectedEventPreview, setSelectedEventPreview] = useState<any | null>(null);
+  const [selectedFriendPreview, setSelectedFriendPreview] = useState<any | null>(null);
+  const [previewAnchor, setPreviewAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [mapSize, setMapSize] = useState<{ width: number; height: number } | null>(null);
   const insets = useSafeAreaInsets();
 
-  // Fetch raw events from Firestore
+  const formattoMMDD = (startValue: any, endValue?: any): string | undefined => {
+    const toDate = (value: any): Date | undefined => {
+      if (!value) return undefined;
+      if (typeof value?.toDate === 'function') return value.toDate();
+      if (value instanceof Date) return value;
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? undefined : d;
+    };
+    const start = toDate(startValue);
+
+    if (!start) return undefined;
+
+    const mm = start.getMonth() + 1;  // 1–12
+    const dd = start.getDate();       // 1–31
+    const startStr = `${mm}/${dd}`;
+    const end = toDate(endValue);
+
+    if (!end) return startStr;
+    
+    const mm2 = end.getMonth() + 1;
+    const dd2 = end.getDate();
+    const endStr = `${mm2}/${dd2}`;
+    return `${startStr} ~ ${endStr}`;
+  };
+
+  const clearPreviews = () => {
+    setSelectedEventPreview(null);
+    setSelectedFriendPreview(null);
+    setPreviewAnchor(null);
+  };
+
+  // Fetch raw events from Firestore (normalize latitude/longitude -> lat/lng, categories -> category)
   useEffect(() => {
+    if (!auth.currentUser) return;
     const fetchEvents = async () => {
       try {
         const eventDocs = await getDocs(collection(db, 'events'));
-        const eventsList = eventDocs.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
+        console.log('ExplorePage: Fetched events count:', eventDocs.docs.length);
+        const eventsList = eventDocs.docs.map(doc => {
+          const d = doc.data();
+          return {
+            id: doc.id,
+            ...d,
+            lat: d.lat ?? d.latitude,
+            lng: d.lng ?? d.longitude,
+            category: d.category ?? (Array.isArray(d.categories) ? d.categories[0] : d.category),
+          };
+        });
         setEvents(eventsList as any[]);
-      } catch (error) {
-        console.error("Error fetching events:", error);
+      } catch (error: any) {
+        console.error('ExplorePage: Error fetching events:', error?.code ?? error?.message ?? error);
       }
     };
 
     fetchEvents();
   }, []);
+
+  const getCityKey = (event: any): string | null => {
+    const rawCity = (event?.city ?? event?.location ?? '').toString().trim();
+    if (!rawCity) return null;
+    const city = rawCity.split(',')[0]?.trim() || rawCity;
+    const state = (event?.state ?? '').toString().trim();
+    return state ? `${city}, ${state}` : city;
+  };
+
+  const getEventCoords = (event: any): { lat: number; lng: number } | null => {
+    const lat = event?.lat;
+    const lng = event?.lng;
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+    const cityKey = getCityKey(event);
+    if (!cityKey) return null;
+    return cityCoordsCache[cityKey] ?? null;
+  };
+
+  // If an event has no coordinates, try to geocode its city as a fallback.
+  useEffect(() => {
+    const toGeocode = new Set<string>();
+    for (const e of events) {
+      if (Number.isFinite(e?.lat) && Number.isFinite(e?.lng)) continue;
+      const key = getCityKey(e);
+      if (key && !cityCoordsCache[key]) toGeocode.add(key);
+    }
+    if (toGeocode.size === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      for (const key of toGeocode) {
+        try {
+          const results = await Location.geocodeAsync(key);
+          const first = results?.[0];
+          if (!first || cancelled) continue;
+          setCityCoordsCache(prev =>
+            prev[key] ? prev : { ...prev, [key]: { lat: first.latitude, lng: first.longitude } }
+          );
+        } catch (err) {
+          // Swallow geocoding errors; events will just remain un-mappable.
+          console.log('ExplorePage: geocodeAsync failed for', key, err);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [events, cityCoordsCache]);
 
   // Fetch raw friends from Firestore
   useEffect(() => {
@@ -75,6 +169,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
             name: doc.data().displayName || 'Unknown',
             lat: doc.data().lat || 0,
             lng: doc.data().lng || 0,
+            photoURL: doc.data().photoURL ?? doc.data().avatar ?? null,
           }));
 
         setFriends(friendsList);
@@ -106,6 +201,19 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
 
   // Map ref for programmatic control
   const mapRef = useRef<MapView>(null);
+
+  const updatePreviewAnchor = async (coords: { lat: number; lng: number }) => {
+    try {
+      const point = await mapRef.current?.pointForCoordinate({
+        latitude: coords.lat,
+        longitude: coords.lng,
+      });
+      if (!point) return;
+      setPreviewAnchor({ x: point.x, y: point.y });
+    } catch {
+      // ignore
+    }
+  };
 
   // Recenter map to user's location
   const handleRecenterMap = () => {
@@ -158,15 +266,15 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
   ).current;
 
   const { filteredEvents, filteredFriends } = useMemo(() => {
-    const withinDistance = (lat?: number, lng?: number) => {
-      if (!lat || !lng) return false;
+    const withinDistance = (coords: { lat: number; lng: number } | null) => {
+      if (!coords) return false;
       if (!userLocation) return true;
-      return calculateDistance(userLocation.lat, userLocation.lng, lat, lng) <= MAX_DISTANCE_MILES;
+      return calculateDistance(userLocation.lat, userLocation.lng, coords.lat, coords.lng) <= MAX_DISTANCE_MILES;
     };
 
     const normalizedQuery = searchQuery.trim().toLowerCase();
 
-    const eventsInRange = events.filter((event: any) => withinDistance(event.lat, event.lng));
+    const eventsInRange = events.filter((event: any) => withinDistance(getEventCoords(event)));
     const eventsWithoutFood = eventsInRange.filter((event: any) => event.category !== 'Food & Drink');
     const eventsByCategory = selectedCategory === 'All'
       ? eventsWithoutFood
@@ -187,7 +295,13 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
         })
       : eventsByCategory;
 
-    const friendsInRange = friends.filter((friend: any) => withinDistance(friend.lat, friend.lng));
+    const friendsInRange = friends.filter((friend: any) =>
+      withinDistance(
+        Number.isFinite(friend?.lat) && Number.isFinite(friend?.lng)
+          ? { lat: friend.lat, lng: friend.lng }
+          : null
+      )
+    );
     const friendsBySearch = normalizedQuery
       ? friendsInRange.filter((friend: any) => String(friend.name || '').toLowerCase().includes(normalizedQuery))
       : friendsInRange;
@@ -196,7 +310,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
       filteredEvents: eventsBySearch,
       filteredFriends: friendsBySearch,
     };
-  }, [events, friends, searchQuery, selectedCategory, userLocation]);
+  }, [events, friends, searchQuery, selectedCategory, userLocation, cityCoordsCache]);
 
   return (
     <View style={styles.container}>
@@ -207,6 +321,10 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
       ref={mapRef}
       provider={PROVIDER_GOOGLE}
       style={styles.map}
+      onLayout={(e) => {
+        const { width, height } = e.nativeEvent.layout;
+        setMapSize({ width, height });
+      }}
       initialRegion={{
         latitude: userLocation?.lat || 33.8366,
         longitude: userLocation?.lng || -118.3257,
@@ -215,28 +333,162 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
       }}
       showsUserLocation={true}
       showsMyLocationButton={false}
+      onPress={clearPreviews}
+      onRegionChangeComplete={() => {
+        const coords = selectedEventPreview ? getEventCoords(selectedEventPreview) : null;
+        const friendCoords = selectedFriendPreview && Number.isFinite(selectedFriendPreview?.lat) && Number.isFinite(selectedFriendPreview?.lng)
+          ? { lat: selectedFriendPreview.lat, lng: selectedFriendPreview.lng }
+          : null;
+        const active = coords ?? friendCoords;
+        if (active) updatePreviewAnchor(active);
+      }}
     >
-      {/* Event Markers */}
-      {filteredEvents.map((event: any) => (
+      {/* Event Markers — only render when we have valid coordinates */}
+      {filteredEvents
+        .map((event: any) => {
+          const coords = getEventCoords(event);
+          if (!coords) return null;
+          const eventImageUri =
+            event?.imageUrl ??
+            event?.image ??
+            (Array.isArray(event?.photos) ? event.photos[0] : undefined);
+          const eventInitial = String(event?.name || 'E').trim().slice(0, 1).toUpperCase();
+          return (
         <Marker
           key={event.id}
-          coordinate={{ latitude: event.lat, longitude: event.lng }}
-          title={event.name}
-          description={event.city}
-          onPress={() => onNavigate('event', event.id)}
-        />
-      ))}
+          coordinate={{ latitude: coords.lat, longitude: coords.lng }}
+          onPress={(e) => {
+            (e as any)?.stopPropagation?.();
+            setSelectedFriendPreview(null);
+            setSelectedEventPreview(event);
+            updatePreviewAnchor(coords);
+          }}
+        >
+          <View style={[styles.markerCircle, styles.markerEvent]}>
+            {eventImageUri ? (
+              <Image source={{ uri: eventImageUri }} style={styles.markerImage} />
+            ) : (
+              <Text style={styles.markerFallbackText}>{eventInitial}</Text>
+            )}
+          </View>
+        </Marker>
+          );
+        })
+        .filter(Boolean)}
 
-      {/* Friend Markers */}
-      {filteredFriends.map((friend: any) => (
+      {/* Friend Markers — only render when we have valid coordinates */}
+      {filteredFriends
+        .filter((friend: any) => friend.lat != null && friend.lng != null && Number.isFinite(friend.lat) && Number.isFinite(friend.lng))
+        .map((friend: any) => {
+          const friendImageUri = friend?.photoURL ?? friend?.avatar ?? friend?.photoUrl;
+          const friendInitial = String(friend?.name || 'U').trim().slice(0, 1).toUpperCase();
+          return (
         <Marker
           key={friend.id}
           coordinate={{ latitude: friend.lat, longitude: friend.lng }}
-          title={friend.name}
-          onPress={() => onNavigate('friendProfile', undefined, { friendName: friend.name })}
-        />
-      ))}
+          onPress={(e) => {
+            (e as any)?.stopPropagation?.();
+            setSelectedEventPreview(null);
+            setSelectedFriendPreview(friend);
+            updatePreviewAnchor({ lat: friend.lat, lng: friend.lng });
+          }}
+        >
+          <View style={[styles.markerCircle, styles.markerFriend]}>
+            {friendImageUri ? (
+              <Image source={{ uri: friendImageUri }} style={styles.markerImage} />
+            ) : (
+              <Text style={styles.markerFallbackText}>{friendInitial}</Text>
+            )}
+          </View>
+        </Marker>
+          );
+        })}
     </MapView>
+
+    {/* Marker preview overlay (anchored beside marker) */}
+    {selectedEventPreview && previewAnchor && mapSize ? (() => {
+      const windowW = Dimensions.get('window').width;
+      // Make the preview card a bit wider than it is tall,
+      // and closer to the proportions in the design mock.
+      const CARD_W = Math.max(160, Math.floor(windowW * 0.42));
+      const CARD_H = Math.floor(CARD_W * 0.9);
+      const GAP = 10;
+      const PAD = 8;
+      const side =
+        previewAnchor.x + GAP + CARD_W + PAD <= mapSize.width ? 'right' : 'left';
+      const rawLeft =
+        side === 'right'
+          ? previewAnchor.x + GAP
+          : previewAnchor.x - GAP - CARD_W;
+      const rawTop = previewAnchor.y - CARD_H / 2;
+      const left = Math.max(PAD, Math.min(rawLeft, mapSize.width - CARD_W - PAD));
+      const top = Math.max(PAD, Math.min(rawTop, mapSize.height - CARD_H - PAD));
+      const dateVal = selectedEventPreview?.date ?? selectedEventPreview?.startDate;
+      const startDateStr = formattoMMDD(dateVal);
+      const eventForCard = {
+        id: selectedEventPreview?.id,
+        name: selectedEventPreview?.name ?? '',
+        imageUrl:
+          selectedEventPreview?.imageUrl ??
+          selectedEventPreview?.image ??
+          (Array.isArray(selectedEventPreview?.photos) ? selectedEventPreview.photos[0] : undefined),
+        startDate: startDateStr ?? selectedEventPreview?.startDate,
+        endDate: selectedEventPreview?.endDate,
+        category: selectedEventPreview?.category,
+        city: selectedEventPreview?.city ?? selectedEventPreview?.location,
+        pricePoint: selectedEventPreview?.pricePoint,
+        rating: selectedEventPreview?.rating,
+        distance: selectedEventPreview?.distance,
+      } as any;
+
+      return (
+        <View style={[styles.previewCard, { left, top, width: CARD_W }]}>
+          <EventCard
+            event={eventForCard}
+            onPress={() => onNavigate('event', selectedEventPreview.id)}
+            hideBookmark
+          />
+        </View>
+      );
+    })() : null}
+
+    {selectedFriendPreview && previewAnchor && mapSize ? (() => {
+      const windowW = Dimensions.get('window').width;
+      const CARD_W = Math.max(120, Math.floor(windowW / 3));
+      const CARD_H = 112;
+      const GAP = 10;
+      const PAD = 8;
+      const side =
+        previewAnchor.x + GAP + CARD_W + PAD <= mapSize.width ? 'right' : 'left';
+      const rawLeft =
+        side === 'right'
+          ? previewAnchor.x + GAP
+          : previewAnchor.x - GAP - CARD_W;
+      const rawTop = previewAnchor.y - CARD_H / 2;
+      const left = Math.max(PAD, Math.min(rawLeft, mapSize.width - CARD_W - PAD));
+      const top = Math.max(PAD, Math.min(rawTop, mapSize.height - CARD_H - PAD));
+      return (
+      <TouchableOpacity
+        activeOpacity={0.95}
+        style={[styles.previewCardFriend, { left, top, width: CARD_W }]}
+        onPress={() => onNavigate('friendProfile', undefined, { friendName: selectedFriendPreview.name })}
+      >
+        <View style={styles.previewFriendContent}>
+          <View style={[styles.markerCircle, styles.markerFriend, { width: 54, height: 54, borderRadius: 27 }]}>
+            {selectedFriendPreview?.photoURL ? (
+              <Image source={{ uri: selectedFriendPreview.photoURL }} style={styles.markerImage} />
+            ) : (
+              <Text style={[styles.markerFallbackText, { fontSize: 18 }]}>
+                {String(selectedFriendPreview?.name || 'U').trim().slice(0, 1).toUpperCase()}
+              </Text>
+            )}
+          </View>
+          <Text style={styles.previewFriendName}>{String(selectedFriendPreview?.name || '')}</Text>
+          <Text style={styles.previewFriendCta}>View Profile</Text>
+        </View>
+      </TouchableOpacity>
+      );
+    })() : null}
 
       {/* Top Search UI */}
       <View style={styles.topUI} pointerEvents="box-none">
@@ -419,6 +671,124 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#ffffff',
+  },
+  markerCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 2,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+  },
+  markerEvent: {
+    borderColor: '#facc15', // Suggested (matches legend)
+  },
+  markerFriend: {
+    borderColor: '#4ade80', // Friends (matches legend)
+  },
+  markerImage: {
+    width: '100%',
+    height: '100%',
+  },
+  markerFallbackText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  previewCard: {
+    position: 'absolute',
+    // Outer wrapper for the shared EventCard preview.
+    // Keep below the bottom sheet/list (zIndex: 20).
+    backgroundColor: 'transparent',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 6,
+    zIndex: 15, // keep below the bottom sheet/list (zIndex: 20)
+  },
+  previewCardFriend: {
+    position: 'absolute',
+    width: 190,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 6,
+    zIndex: 15, // keep below the bottom sheet/list (zIndex: 20)
+  },
+  previewRow: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+  },
+  previewThumbWrap: {
+    width: 64,
+    height: 48,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#f3f4f6',
+  },
+  previewThumb: {
+    width: '100%',
+    height: '100%',
+  },
+  previewThumbFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewThumbFallbackText: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#111827',
+  },
+  previewMeta: {
+    flex: 1,
+    minWidth: 0,
+  },
+  previewTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  previewSubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  previewSubText: {
+    fontSize: 11,
+    color: '#111827',
+    fontWeight: '700',
+  },
+  previewLocation: {
+    marginTop: 4,
+    fontSize: 11,
+    color: '#6b7280',
+    fontWeight: '600',
+  },
+  previewFriendContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+    gap: 6,
+  },
+  previewFriendName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  previewFriendCta: {
+    fontSize: 11,
+    color: '#6b7280',
+    fontWeight: '600',
   },
   // Map
   map: {
@@ -698,3 +1068,5 @@ const styles = StyleSheet.create({
     paddingVertical: 32,
   },
 });
+
+export default ExplorePage;
