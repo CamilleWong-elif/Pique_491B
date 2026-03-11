@@ -99,6 +99,16 @@ export function FriendProfileScreen({
   const [removedFollowerIds, setRemovedFollowerIds] = useState<Set<string>>(new Set());
   const [removedFollowingIds, setRemovedFollowingIds] = useState<Set<string>>(new Set());
 
+  const [friendData, setFriendData] = useState({
+    id: friendName,
+    name: "",
+    bio: "",
+    avatar: getAvatarWithFallback(friendName),
+    followerUids: [] as string[],
+    followingUids: [] as string[],
+  });
+
+
   // true if the current user's UID is in the friend's followerCount array
   const isFollowing = currentUid ? friendData.followerUids.includes(currentUid) : false;
 
@@ -117,14 +127,6 @@ export function FriendProfileScreen({
     }
   };
 
-  const [friendData, setFriendData] = useState({
-    id: friendName,
-    name: "",
-    bio: "",
-    avatar: getAvatarWithFallback(friendName),
-    followerUids: [] as string[],
-    followingUids: [] as string[],
-  });
 
   useEffect(() => {
     const fetchFriendData = async () => {
