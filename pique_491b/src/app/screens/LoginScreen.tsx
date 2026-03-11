@@ -1,6 +1,8 @@
 import { auth } from '@/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithCredential, signInWithEmailAndPassword } from 'firebase/auth';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+import Constants from 'expo-constants';
 import { Check, Eye, EyeOff, Lock, Mail } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Dimensions, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -11,8 +13,13 @@ const REMEMBER_ME_KEY = '@pique_remember_me';
 const SAVED_EMAIL_KEY = '@pique_saved_email';
 
 const logo = require('@/assets/images/temp_logo.png');
-const {width} = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 const LOGO_SIZE = width * 0.4;
+
+
+const googleAuthConfig = Constants.expoConfig?.extra?.googleAuth as
+  | { webClientId?: string }
+  | undefined;
 
 interface LoginScreenProps {
   onLogin: () => void;
@@ -28,6 +35,7 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
   const [rememberMe, setRememberMe] = useState(false);
   const insets = useSafeAreaInsets();
 
+  // Configure Google Sign-In once on mount
   useEffect(() => {
     const loadSavedCredentials = async () => {
       try {
@@ -45,7 +53,14 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
     };
     loadSavedCredentials();
   }, []);
-  
+
+  useEffect(() => {
+    GoogleSignin.configure({
+      webClientId: googleAuthConfig?.webClientId,
+      offlineAccess: true,
+    });
+  }, []);
+
   const handleSubmit = async () => {
     setError(null);
 
@@ -77,6 +92,42 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
       } else {
         setError('Unable to sign in. Please try again.');
         console.log('Firebase login error:', err);
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setError(null);
+    setIsSubmitting(true);
+
+    try {
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+      const signInResult = await GoogleSignin.signIn();
+
+      // Get the ID token from the sign-in result
+      const idToken = signInResult.data?.idToken;
+      if (!idToken) {
+        setError('Google sign in failed — no ID token received.');
+        return;
+      }
+
+      // Use the token to sign into Firebase
+      const credential = GoogleAuthProvider.credential(idToken);
+      await signInWithCredential(auth, credential);
+      onLogin();
+    } catch (err: any) {
+      if (err.code === statusCodes.SIGN_IN_CANCELLED) {
+        // User cancelled — not an error
+        console.log('User cancelled Google sign in');
+      } else if (err.code === statusCodes.IN_PROGRESS) {
+        setError('Sign in already in progress.');
+      } else if (err.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        setError('Google Play Services not available.');
+      } else {
+        setError('Unable to sign in with Google. Please try again.');
+        console.log('Google sign in error:', JSON.stringify(err, null, 2));
       }
     } finally {
       setIsSubmitting(false);
@@ -185,7 +236,8 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
         {/* Google Button */}
         <TouchableOpacity
           style={styles.socialButton}
-          onPress={() => handleSocialLogin('Google')}
+          onPress={handleGoogleSignIn}
+          disabled={isSubmitting}
         >
           <Svg width={20} height={20} viewBox="0 0 24 24">
             <Path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -394,3 +446,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+export default LoginScreen;

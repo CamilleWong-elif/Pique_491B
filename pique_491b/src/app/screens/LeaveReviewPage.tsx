@@ -382,3 +382,5 @@ const styles = StyleSheet.create({
   postTextOn: { color: "#fff" },
   postTextOff: { color: "#9CA3AF" },
 });
+
+export default LeaveReviewScreen;
