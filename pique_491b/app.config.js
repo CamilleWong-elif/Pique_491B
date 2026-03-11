@@ -60,6 +60,9 @@ module.exports = {
       googleAuth: {
         webClientId: process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID,
       },
+      googleAuth: {
+        webClientId: process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID,
+      },
     },
   },
 };
