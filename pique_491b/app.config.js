@@ -10,7 +10,7 @@ module.exports = {
     android: {
       package: "com.piqueapp.main",
       adaptiveIcon: {
-        foregroundImage: "./src/assets/images/temp_logo.png",
+        foregroundImage: "./src/assets/images/icon.png",
         backgroundColor: "#2E96F0",
       },
       config: {
@@ -21,6 +21,11 @@ module.exports = {
     },
     ios: {
       bundleIdentifier: "com.piqueapp.main",
+      icon: { foregroundImage: "./src/assets/images/icon.png" },
+      backgroundColor: "#2E96F0",
+      config: {
+        googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY,
+      },
     },
     plugins: [
       [
@@ -28,6 +33,19 @@ module.exports = {
         {
           iosUrlScheme: process.env.EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME,
         },
+      ],
+      [
+        "expo-location",
+        {
+          locationAlwaysAndWhenInUsePermission: "Allow $(PRODUCT_NAME) to use your location."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          photosPermission: "Allow $(PRODUCT_NAME) to access your photos.",
+          cameraPermission: "Allow $(PRODUCT_NAME) to access your camera."
+        }
       ],
     ],
     extra: {
