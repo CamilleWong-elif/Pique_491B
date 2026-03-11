@@ -1,16 +1,16 @@
 // EventCard.tsx
+import { Bookmark, Star } from "lucide-react-native";
 import React, { useState } from "react";
 import {
-  View,
-  Text,
-  Image,
-  StyleSheet,
-  TouchableOpacity,
-  Pressable,
-  Platform,
-  AccessibilityRole,
+    AccessibilityRole,
+    Image,
+    Platform,
+    Pressable,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
-import { Star, Bookmark } from "lucide-react-native";
 import type { Event } from "../types/Event";
 
 /**
@@ -193,10 +193,10 @@ const styles = StyleSheet.create({
   },
 
   title: {
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 12,
+    fontWeight: "600",
     color: "#111827",
-    marginBottom: 6,
+    marginBottom: 4,
   },
 
   row: {

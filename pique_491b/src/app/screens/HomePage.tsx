@@ -1,14 +1,16 @@
+import { EventCard } from '@/components/EventCard';
 import { NavigationBar } from '@/components/NavigationBar';
 import { NotificationsModal } from '@/components/NotificationsModal';
+import { SocialActivityCard } from '@/components/Placeholder';
 import { SearchOverlay } from '@/components/SearchOverlay';
-import { EventCard, SocialActivityCard } from '@/components/Placeholder';
+import { auth, db } from '@/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 import { Bell, Menu, MessageCircle, Plus, Search } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// Placeholder data — replace with real mockData imports when ready
-const mockEvents: any[] = [];
+
 const mockSocialActivities: any[] = [];
 const categories = ['All', 'Music', 'Sports', 'Arts', 'Food & Drink', 'Tech', 'Outdoors'];
 const mockNotifications: any[] = [];
@@ -30,11 +32,59 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState(mockNotifications);
+  const [events, setEvents] = useState<any[]>([]);
   const insets = useSafeAreaInsets();
+
+  const formattoMMDD = (startValue: any, endValue?: any): string | undefined => {
+    const toDate = (value: any): Date | undefined => {
+      if (!value) return undefined;
+      if (typeof value?.toDate === 'function') return value.toDate();
+      if (value instanceof Date) return value;
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? undefined : d;
+    };
+
+    const start = toDate(startValue);
+    if (!start) return undefined;
+    const mm = start.getMonth() + 1;  // 1–12
+    const dd = start.getDate();       // 1–31
+    const startStr = `${mm}/${dd}`;
+    const end = toDate(endValue);
+
+    if (!end) return startStr;
+    const mm2 = end.getMonth() + 1;
+    const dd2 = end.getDate();
+    const endStr = `${mm2}/${dd2}`;
+    return `${startStr} ~ ${endStr}`;
+  };
+
+  useEffect(() => {
+    if (!auth.currentUser) return;
+    const fetchEvents = async () => {
+      try {
+        const eventDocs = await getDocs(collection(db, 'events'));
+        console.log('HomePage: Fetched events count:', eventDocs.docs.length);
+        const eventsList = eventDocs.docs.map(doc => {
+          const d = doc.data();
+          return {
+            id: doc.id,
+            ...d,
+            lat: d.lat ?? d.latitude,
+            lng: d.lng ?? d.longitude,
+            category: d.category ?? (Array.isArray(d.categories) ? d.categories[0] : d.category),
+          };
+        });
+        setEvents(eventsList);
+      } catch (error: any) {
+        console.error('HomePage: Error fetching events:', error?.code ?? error?.message ?? error);
+      }
+    };
+    fetchEvents();
+  }, []);
 
   const unreadNotificationCount = notifications.filter((n: any) => !n.read).length;
 
-  const activityEvents = mockEvents.filter((e: any) => e.category !== 'Food & Drink');
+  const activityEvents = events.filter((e: any) => e.category !== 'Food & Drink');
   const filteredEvents = selectedCategories.includes('All')
     ? activityEvents
     : activityEvents.filter((e: any) => selectedCategories.includes(e.category));
@@ -211,21 +261,36 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
           ))}
         </ScrollView>
 
-        {/* Event Carousel — stub, will populate when EventCard is converted */}
+        {/* Event Carousel */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.carousel}
           contentContainerStyle={styles.carouselContent}
         >
-          {filteredEvents.map((event: any) => (
-            <View key={event.id} style={styles.carouselItem}>
-              <EventCard
-                event={event}
-                onClick={() => onNavigate('event', event.id)}
-              />
-            </View>
-          ))}
+          {filteredEvents.map((event: any) => {
+            const dateVal = event.date ?? event.startDate;
+            const startDateStr = formattoMMDD(dateVal);
+            return (
+              <View key={event.id} style={styles.carouselItem}>
+                <EventCard
+                  event={{
+                    id: event.id,
+                    name: event.name ?? '',
+                    imageUrl: event.imageUrl ?? event.image,
+                    startDate: startDateStr ?? event.startDate,
+                    endDate: event.endDate,
+                    category: event.category,
+                    city: event.city ?? event.location,
+                    pricePoint: event.pricePoint,
+                    rating: event.rating,
+                    distance: event.distance,
+                  }}
+                  onPress={() => onNavigate('event', event.id)}
+                />
+              </View>
+            );
+          })}
         </ScrollView>
 
         {/* Activity Feed — stub, will populate when SocialActivityCard is converted */}
@@ -486,3 +551,5 @@ const styles = StyleSheet.create({
     color: '#111827',
   },
 });
+
+export default HomePage;

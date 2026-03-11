@@ -528,3 +528,5 @@ const styles = StyleSheet.create({
   },
   responseText: { fontSize: 12, color: "#374151", lineHeight: 18 },
 });
+
+export default PrivacyPolicyScreen;

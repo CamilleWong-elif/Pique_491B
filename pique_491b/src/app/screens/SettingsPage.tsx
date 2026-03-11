@@ -302,3 +302,5 @@ const styles = StyleSheet.create({
   chipTextOn: { color: "#1D4ED8" },
   chipTextOff: { color: "#374151" },
 });
+
+export default SettingsScreen;
