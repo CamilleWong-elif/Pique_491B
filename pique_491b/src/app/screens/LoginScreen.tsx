@@ -1,14 +1,9 @@
 import { auth } from '@/firebase';
-<<<<<<< HEAD
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { Check, Eye, EyeOff, Lock, Mail } from 'lucide-react-native';
-=======
 import { GoogleAuthProvider, signInWithCredential, signInWithEmailAndPassword } from 'firebase/auth';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import Constants from 'expo-constants';
-import { Eye, EyeOff, Lock, Mail } from 'lucide-react-native';
->>>>>>> 7504cb9 (fixed google signin)
+import { Check, Eye, EyeOff, Lock, Mail } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Dimensions, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,13 +16,11 @@ const logo = require('@/assets/images/temp_logo.png');
 const { width } = Dimensions.get('window');
 const LOGO_SIZE = width * 0.4;
 
-<<<<<<< HEAD
-=======
+
 const googleAuthConfig = Constants.expoConfig?.extra?.googleAuth as
   | { webClientId?: string }
   | undefined;
 
->>>>>>> 7504cb9 (fixed google signin)
 interface LoginScreenProps {
   onLogin: () => void;
   onNavigateToSignUp: () => void;
@@ -44,7 +37,6 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
 
   // Configure Google Sign-In once on mount
   useEffect(() => {
-<<<<<<< HEAD
     const loadSavedCredentials = async () => {
       try {
         const [savedRememberMe, savedEmail] = await Promise.all([
@@ -61,16 +53,14 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
     };
     loadSavedCredentials();
   }, []);
-  
-=======
-    console.log('webClientId:', googleAuthConfig?.webClientId);
+
+  useEffect(() => {
     GoogleSignin.configure({
       webClientId: googleAuthConfig?.webClientId,
       offlineAccess: true,
     });
   }, []);
 
->>>>>>> 7504cb9 (fixed google signin)
   const handleSubmit = async () => {
     setError(null);
 
@@ -108,8 +98,6 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
     }
   };
 
-<<<<<<< HEAD
-=======
   const handleGoogleSignIn = async () => {
     setError(null);
     setIsSubmitting(true);
@@ -146,7 +134,6 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
     }
   };
 
->>>>>>> 7504cb9 (fixed google signin)
   const handleSocialLogin = (provider: string) => {
     console.log(`Logging in with ${provider}`);
     onLogin();
@@ -249,12 +236,8 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
         {/* Google Button */}
         <TouchableOpacity
           style={styles.socialButton}
-<<<<<<< HEAD
-          onPress={() => handleSocialLogin('Google')}
-=======
           onPress={handleGoogleSignIn}
           disabled={isSubmitting}
->>>>>>> 7504cb9 (fixed google signin)
         >
           <Svg width={20} height={20} viewBox="0 0 24 24">
             <Path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
