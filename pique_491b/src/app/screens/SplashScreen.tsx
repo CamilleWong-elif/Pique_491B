@@ -61,3 +61,5 @@ const styles = StyleSheet.create({
     height: 288,  // give it a fixed height since h-auto doesn't exist in RN
   },
 });
+
+export default SplashScreen;
