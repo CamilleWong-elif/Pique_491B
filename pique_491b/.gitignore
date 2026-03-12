@@ -48,6 +48,6 @@ app-example
 
 .claude/
 .expo/
-.idea
+.idea/
 /shelf/
 /workspace.xml
