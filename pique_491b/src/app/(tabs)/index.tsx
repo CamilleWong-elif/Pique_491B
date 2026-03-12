@@ -19,6 +19,7 @@ import { SplashScreen } from '../screens/SplashScreen';
 import { TermsConditionsScreen } from '../screens/TermsConditionsPage';
 import { EventCard } from '@/components/EventCard';
 import { NavigationBar } from '@/components/NavigationBar';
+import { EventDetailScreen } from '../screens/EventDetailPage';
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
@@ -27,6 +28,7 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState('home');
   const [postedEventName, setPostedEventName] = useState('');
   const [selectedFriendName, setSelectedFriendName] = useState('');
+  const [selectedEventId, setSelectedEventId] = useState<string>('');
 
   const handleNavigate = (page: string, param?: string, options?: any) => {
     if (__DEV__) {
@@ -38,6 +40,7 @@ export default function App() {
       throw new Error(`handleNavigate received an invalid page: ${JSON.stringify(page)}`);
     }
     if (page === 'event-posted' && param) setPostedEventName(param);
+    if (page === 'event' && param) setSelectedEventId(param);
     if (page === 'friendProfile') {
       const friendName = options?.friendName || param || '';
       setSelectedFriendName(friendName);
@@ -135,6 +138,13 @@ export default function App() {
         )}
         {!isLoading && isAuthenticated && currentPage === 'privacy' && (
           <PrivacyPolicyScreen onNavigate={handleNavigate} />
+        )}
+        {!isLoading && isAuthenticated && currentPage === 'event' && !!selectedEventId && (
+          <EventDetailScreen
+            eventId={selectedEventId}
+            onBack={() => handleNavigate('home')}
+            onNavigate={handleNavigate}
+          />
         )}
         {!isLoading && isAuthenticated && currentPage === 'event-posted' && (
           <EventPostedPage eventName={postedEventName} onNavigate={handleNavigate} />
