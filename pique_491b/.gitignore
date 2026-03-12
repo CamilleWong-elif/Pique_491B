@@ -48,3 +48,5 @@ app-example
 
 .claude/
 .expo/
+/shelf/
+/workspace.xml

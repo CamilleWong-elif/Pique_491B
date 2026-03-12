@@ -146,7 +146,7 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
 
             {/* Bottom Menu Items */}
             <View style={styles.menuItems}>
-              <TouchableOpacity style={styles.menuItem} onPress={() => setIsMenuOpen(false)}>
+              <TouchableOpacity style={styles.menuItem} onPress={() => { setIsMenuOpen(false); onNavigate('contact'); }}>
                 <Text style={styles.menuItemTextSmall}>Have questions? Contact us!</Text>
               </TouchableOpacity>
               <TouchableOpacity
