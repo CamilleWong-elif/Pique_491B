@@ -12,6 +12,7 @@ import {
   SafeAreaView,
   Image,
   FlatList,
+  ActivityIndicator,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -26,6 +27,8 @@ import {
   Navigation,
   Bookmark,
 } from "lucide-react-native";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/firebase";
 
 // ----- Types (adjust to your app) -----
 export type UserImage = { url: string; userName: string };
@@ -48,7 +51,7 @@ export type Event = {
 };
 
 type Props = {
-  event: Event;
+  eventId: string;
   onBack: () => void;
   showPrice?: boolean;
   onNavigate?: (page: string, eventId?: string) => void;
@@ -57,16 +60,75 @@ type Props = {
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
 
+/** Map a raw Firestore document to the local Event shape. */
+function mapFirestoreToEvent(id: string, d: Record<string, any>): Event {
+  const toDateStr = (value: any): string | undefined => {
+    if (!value) return undefined;
+    if (typeof value?.toDate === "function") return value.toDate().toLocaleDateString();
+    if (value instanceof Date) return value.toLocaleDateString();
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed.toLocaleDateString();
+  };
+
+  const city: string = d.city ?? (typeof d.location === "string" ? d.location.split(",")[0]?.trim() : "") ?? "";
+  const state: string = d.state ?? (typeof d.location === "string" ? d.location.split(",")[1]?.trim() : "") ?? "";
+
+  return {
+    id,
+    name: d.name ?? "Untitled Event",
+    imageUrl: d.imageUrl ?? d.image ?? "",
+    userImages: Array.isArray(d.userImages) ? d.userImages : [],
+    startDate: toDateStr(d.startDate ?? d.date),
+    endDate: toDateStr(d.endDate),
+    city,
+    state,
+    rating: typeof d.rating === "number" ? d.rating : 0,
+    reviewCount: typeof d.reviewCount === "number" ? d.reviewCount : 0,
+    description: d.description ?? "",
+    address: d.address ?? d.location ?? "",
+    distance: typeof d.distance === "number" ? d.distance : 0,
+    pricePoint: typeof d.pricePoint === "number" ? d.pricePoint : (d.ticketTiers?.length ? 1 : 0),
+  };
+}
+
 export function EventDetailScreen({
-  event,
+  eventId,
   onBack,
   showPrice = true,
   onNavigate,
   activeTab,
 }: Props) {
+  const [event, setEvent] = useState<Event | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setFetchError(null);
+
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, "events", eventId));
+        if (cancelled) return;
+        if (!snap.exists()) {
+          setFetchError("Event not found.");
+        } else {
+          setEvent(mapFirestoreToEvent(snap.id, snap.data() as Record<string, any>));
+        }
+      } catch (err: any) {
+        if (!cancelled) setFetchError(err?.message ?? "Failed to load event.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [eventId]);
+
   const allImages = useMemo(
-    () => [{ url: event.imageUrl, userName: "Event Creator" }, ...(event.userImages || [])],
-    [event.imageUrl, event.userImages]
+    () => event ? [{ url: event.imageUrl, userName: "Event Creator" }, ...(event.userImages || [])] : [],
+    [event]
   );
 
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -77,13 +139,8 @@ export function EventDetailScreen({
   const heroPagerRef = useRef<FlatList<{ url: string; userName: string }>>(null);
   const galleryPagerRef = useRef<FlatList<{ url: string; userName: string }>>(null);
 
-  const formatDate = () => {
-    if (!event.startDate) return "";
-    if (event.endDate) return `${event.startDate} - ${event.endDate}`;
-    return event.startDate;
-  };
-
   // Auto-advance hero slideshow every 5 seconds (when multiple images & gallery not open)
+  // Must be declared before any early returns to satisfy Rules of Hooks.
   useEffect(() => {
     if (allImages.length <= 1) return;
     if (galleryOpen) return;
@@ -98,6 +155,46 @@ export function EventDetailScreen({
 
     return () => clearInterval(t);
   }, [allImages.length, galleryOpen]);
+
+  const notchTopPadEarly =
+    Platform.OS === "android"
+      ? (StatusBar.currentHeight || 0) + 14
+      : 14;
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#fff" }}>
+        <ActivityIndicator size="large" color="#0284C7" />
+        <TouchableOpacity
+          onPress={onBack}
+          style={[styles.backBtn, { position: "absolute", top: notchTopPadEarly, left: 18 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+        >
+          <ArrowLeft size={20} color="#111" />
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (fetchError || !event) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#fff", padding: 24 }}>
+        <Text style={{ fontSize: 16, color: "#374151", textAlign: "center", marginBottom: 16 }}>
+          {fetchError ?? "Something went wrong."}
+        </Text>
+        <TouchableOpacity onPress={onBack} style={styles.bookBtn}>
+          <Text style={styles.bookText}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const formatDate = () => {
+    if (!event.startDate) return "";
+    if (event.endDate) return `${event.startDate} - ${event.endDate}`;
+    return event.startDate;
+  };
 
   const openGallery = (index: number) => {
     setCurrentImageIndex(index);
