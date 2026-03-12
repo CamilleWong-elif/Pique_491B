@@ -1,9 +1,10 @@
 import { ArrowLeft, Send } from 'lucide-react-native';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   FlatList,
   Image,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView,
+  Platform,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -12,6 +13,19 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+// 1. Import the new modular Firebase functions
+import { 
+  collection, 
+  doc, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  serverTimestamp, 
+  writeBatch 
+} from 'firebase/firestore';
+import { db } from '../../firebase';
+const MY_USER_ID = 'user_123'; 
 
 type Conversation = {
   id: string;
@@ -29,58 +43,103 @@ type Message = {
   timestamp: string;
 };
 
-const mockConversations: Conversation[] = [
-  { id: '1', name: 'Sarah', lastMessage: 'See you at yoga tonight!', timestamp: '395d ago', unread: 2 },
-  { id: '2', name: 'Javier', lastMessage: 'Yeah, I loved it! Great workout', timestamp: '395d ago' },
-  { id: '3', name: 'Mike', lastMessage: 'Perfect! See you there', timestamp: '397d ago' },
-  { id: '4', name: 'Emma', lastMessage: 'Would love to!', timestamp: '398d ago', unread: 1 },
-];
-
-const mockMessages: Record<string, Message[]> = {
-  '1': [
-    { id: '1', text: 'Hey! Are you going to yoga tonight?', fromMe: false, timestamp: '6:00 PM' },
-    { id: '2', text: 'Yes! See you there', fromMe: true, timestamp: '6:01 PM' },
-    { id: '3', text: 'See you at yoga tonight!', fromMe: false, timestamp: '6:02 PM' },
-  ],
-  '2': [
-    { id: '1', text: 'That workout was amazing!', fromMe: true, timestamp: '5:00 PM' },
-    { id: '2', text: 'Yeah, I loved it! Great workout', fromMe: false, timestamp: '5:01 PM' },
-  ],
-  '3': [
-    { id: '1', text: 'Want to meet at the event?', fromMe: true, timestamp: '4:00 PM' },
-    { id: '2', text: 'Perfect! See you there', fromMe: false, timestamp: '4:05 PM' },
-  ],
-  '4': [
-    { id: '1', text: 'Come join us!', fromMe: true, timestamp: '3:00 PM' },
-    { id: '2', text: 'Would love to!', fromMe: false, timestamp: '3:10 PM' },
-  ],
-};
-
 interface MessagingScreenProps {
   onBack: () => void;
 }
 
 export function MessagingScreen({ onBack }: MessagingScreenProps) {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvo, setActiveConvo] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const insets = useSafeAreaInsets();
 
-  const openConversation = (convo: Conversation) => {
-    setActiveConvo(convo);
-    setMessages(mockMessages[convo.id] || []);
-  };
+  // 1. Listen for Conversations (Inbox View)
+  useEffect(() => {
+    const chatsRef = collection(db, 'chats');
+    const q = query(chatsRef, orderBy('updatedAt', 'desc'));
 
-  const sendMessage = () => {
-    if (!inputText.trim()) return;
-    const newMsg: Message = {
-      id: Date.now().toString(),
-      text: inputText.trim(),
-      fromMe: true,
-      timestamp: 'Now',
-    };
-    setMessages(prev => [...prev, newMsg]);
-    setInputText('');
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedConvos = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          name: data.name || 'Unknown',
+          avatar: data.avatar,
+          lastMessage: data.lastMessage || '',
+          timestamp: data.updatedAt 
+            ? new Date(data.updatedAt.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : '',
+        };
+      });
+      setConversations(fetchedConvos);
+    }, (error) => {
+      console.error("Error fetching conversations:", error);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // 2. Listen for Messages inside an Active Conversation (Chat View)
+  useEffect(() => {
+    if (!activeConvo) return;
+
+    // Point exactly to the nested subcollection: chats/{chatId}/messages
+    const messagesRef = collection(db, 'chats', activeConvo.id, 'messages');
+    const q = query(messagesRef, orderBy('timestamp', 'asc'));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedMessages = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          text: data.text,
+          fromMe: data.senderId === MY_USER_ID,
+          timestamp: data.timestamp 
+            ? new Date(data.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+            : 'Now', // 'Now' handles the local cache before the server timestamp confirms
+        };
+      });
+      setMessages(fetchedMessages);
+    }, (error) => {
+      console.error("Error fetching messages:", error);
+    });
+
+    return () => unsubscribe();
+  }, [activeConvo]);
+
+  // 3. Send a Message to Firebase
+  const sendMessage = async () => {
+    if (!inputText.trim() || !activeConvo) return;
+    
+    const textToSend = inputText.trim();
+    setInputText(''); 
+
+    try {
+      // Use a batch to write the new message AND update the chat's lastMessage at the same time
+      const batch = writeBatch(db);
+      
+      // Step A: Create the new message in the subcollection
+      const messagesCollectionRef = collection(db, 'chats', activeConvo.id, 'messages');
+      const newMessageRef = doc(messagesCollectionRef); // Auto-generates an ID
+        
+      batch.set(newMessageRef, {
+        text: textToSend,
+        senderId: MY_USER_ID,
+        timestamp: serverTimestamp(),
+      });
+
+      // Step B: Update the parent chat document
+      const chatRef = doc(db, 'chats', activeConvo.id);
+      batch.update(chatRef, {
+        lastMessage: textToSend,
+        updatedAt: serverTimestamp(),
+      });
+
+      await batch.commit();
+    } catch (error) {
+      console.error("Failed to send message:", error);
+    }
   };
 
   // Chat view
@@ -153,11 +212,11 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
       </View>
 
       <FlatList
-        data={mockConversations}
+        data={conversations} 
         keyExtractor={c => c.id}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.convoRow} onPress={() => openConversation(item)}>
+          <TouchableOpacity style={styles.convoRow} onPress={() => setActiveConvo(item)}>
             <View style={styles.avatarWrap}>
               {item.avatar
                 ? <Image source={{ uri: item.avatar }} style={styles.avatar} />
@@ -165,11 +224,6 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
                     <Text style={styles.avatarFallbackText}>{item.name.slice(0, 2).toUpperCase()}</Text>
                   </View>
               }
-              {!!item.unread && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{item.unread}</Text>
-                </View>
-              )}
             </View>
             <View style={styles.convoInfo}>
               <Text style={styles.convoName}>{item.name}</Text>
