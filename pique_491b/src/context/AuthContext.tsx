@@ -8,6 +8,8 @@ export interface UserProfile {
   bio?: string;
   photoURL?: string;
   username?: string;
+  followerCount?: string[];
+  followingCount?: string[];
   updatedAt?: unknown;
 }
 

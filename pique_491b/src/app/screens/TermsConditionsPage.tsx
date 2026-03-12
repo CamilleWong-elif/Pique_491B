@@ -375,3 +375,5 @@ const styles = StyleSheet.create({
   },
   addrText: { fontSize: 13, color: "#374151", lineHeight: 18, marginTop: 6 },
 });
+
+export default TermsConditionsScreen;

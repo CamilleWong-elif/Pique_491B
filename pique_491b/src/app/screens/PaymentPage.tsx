@@ -505,3 +505,5 @@ const styles = StyleSheet.create({
 
   redirectText: { fontSize: 12, color: "#6B7280", marginTop: 6 },
 });
+
+export default PaymentScreen;

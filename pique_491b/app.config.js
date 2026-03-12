@@ -4,20 +4,50 @@ module.exports = {
   expo: {
     name: "PiqueApp",
     slug: "piqueapp",
+    owner: "camyw",
     scheme: "piqueapp",
-    platforms: ["android"],
+    platforms: ["android", "ios"],
     android: {
       package: "com.piqueapp.main",
       adaptiveIcon: {
-        foregroundImage: "./src/assets/images/temp_logo.png",
-        backgroundColor: "#2E96F0"
+        foregroundImage: "./src/assets/images/icon.png",
+        backgroundColor: "#2E96F0",
       },
       config: {
         googleMaps: {
-          apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY
-        }
-      }
+          apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY,
+        },
+      },
     },
+    ios: {
+      bundleIdentifier: "com.piqueapp.main",
+      icon: { foregroundImage: "./src/assets/images/icon.png" },
+      backgroundColor: "#2E96F0",
+      config: {
+        googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY,
+      },
+    },
+    plugins: [
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          iosUrlScheme: process.env.EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME,
+        },
+      ],
+      [
+        "expo-location",
+        {
+          locationAlwaysAndWhenInUsePermission: "Allow $(PRODUCT_NAME) to use your location."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          photosPermission: "Allow $(PRODUCT_NAME) to access your photos.",
+          cameraPermission: "Allow $(PRODUCT_NAME) to access your camera."
+        }
+      ],
+    ],
     extra: {
       firebase: {
         apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -26,6 +56,9 @@ module.exports = {
         storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
         messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
         appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+      },
+      googleAuth: {
+        webClientId: process.env.EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID,
       },
     },
   },
