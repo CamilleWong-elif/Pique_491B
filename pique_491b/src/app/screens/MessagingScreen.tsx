@@ -310,3 +310,5 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: { backgroundColor: '#9ca3af' },
 });
+
+export default MessagingScreen;
