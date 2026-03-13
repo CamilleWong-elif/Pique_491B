@@ -3,9 +3,9 @@
 ## Running the App
 *Before running, make sure the following things are installed:
 1. node.js (needed for npm, using just the .msi installer is fine)*
-2. [Android VM Setup](Android_VM_Setup.md) (necessary for running virtual Android device)
+2. [Android VM Setup](Android%20VM%20Setup.md) (necessary for running virtual Android device)
 3. Proper configuration for *app.config.js* and *.env* (most errors will result from here!)
-	- Create personal SHA-1 key for Google Expo OAuth clientID [Set Up Personal Google Sign-In Credentials](Set_Up_Personal_Google_Sign-In_Credentials.md)
+	- Create personal SHA-1 key for Google Expo OAuth clientID [Set Up Personal Google Sign-In Credentials](Set%20Up%20Personal%20Google%20Sign-In%20Credentials.md)
 
 ### Setup (Windows)
 
