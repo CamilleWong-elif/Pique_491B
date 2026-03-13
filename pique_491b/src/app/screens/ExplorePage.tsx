@@ -106,7 +106,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
     };
 
     fetchEvents();
-  }, []);
+  }, [auth.currentUser]);
 
   const getCityKey = (event: any): string | null => {
     const rawCity = (event?.city ?? event?.location ?? '').toString().trim();
@@ -181,7 +181,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
     };
 
     fetchFriends();
-  }, []);
+  }, [auth.currentUser]);
 
   // Get user's current location
   useEffect(() => {
