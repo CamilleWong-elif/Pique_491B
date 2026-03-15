@@ -55,10 +55,12 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
   }, []);
 
   useEffect(() => {
-    GoogleSignin.configure({
-      webClientId: googleAuthConfig?.webClientId,
-      offlineAccess: true,
-    });
+    if (googleAuthConfig?.webClientId) {
+      GoogleSignin.configure({
+        webClientId: googleAuthConfig.webClientId,
+        offlineAccess: true,
+      });
+    }
   }, []);
 
   const handleSubmit = async () => {

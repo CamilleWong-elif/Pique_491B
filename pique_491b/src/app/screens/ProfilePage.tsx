@@ -4,7 +4,7 @@ import { auth, db } from '@/firebase';
 import { Calendar, FileText, Heart, Pencil, Plus, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Alert, FlatList, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { arrayRemove, collection, doc, documentId, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
+import { arrayRemove, arrayUnion, collection, doc, documentId, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
 
 const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1653771926391-d1b5608c90b2?w=400';
 
@@ -32,6 +32,7 @@ export function ProfilePage({
   const [editingBio, setEditingBio] = useState('');
   const [removedFollowerIds, setRemovedFollowerIds] = useState<Set<string>>(new Set());
   const [removedFollowingIds, setRemovedFollowingIds] = useState<Set<string>>(new Set());
+  const [followingBack, setFollowingBack] = useState<Set<string>>(new Set());
 
   const userName = profile?.displayName ?? user?.displayName ?? user?.email ?? 'User';
   const profilePicture = profile?.photoURL ?? user?.photoURL ?? DEFAULT_AVATAR;
@@ -42,6 +43,10 @@ export function ProfilePage({
 
   const [followers, setFollowers] = useState<{ id: string; name: string; username: string; avatar: string }[]>([]);
   const [following, setFollowing] = useState<{ id: string; name: string; username: string; avatar: string }[]>([]);
+
+  useEffect(() => {
+    setFollowingBack(new Set(followingUids));
+  }, [followingUids.join(',')]);
 
   useEffect(() => {
     if (followerUids.length === 0) { setFollowers([]); return; }
@@ -248,6 +253,15 @@ export function ProfilePage({
               }
               keyExtractor={item => item.id}
               style={{ maxHeight: 420 }}
+              ListEmptyComponent={
+                <View style={styles.emptyModalContainer}>
+                  <Text style={styles.emptyModalText}>
+                    {showFollowModal === 'followers'
+                      ? "No followers yet. Share your profile to grow your community!"
+                      : "You're not following anyone yet. Discover people in the Community tab!"}
+                  </Text>
+                </View>
+              }
               ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: '#f3f4f6' }} />}
               renderItem={({ item }) => (
                 <View style={styles.userRow}>
@@ -258,26 +272,41 @@ export function ProfilePage({
                     <Text style={styles.modalUserName} numberOfLines={1}>{item.name}</Text>
                     <Text style={styles.userMeta} numberOfLines={1}>{item.username}</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.removeBtn}
-                    onPress={async () => {
-                      const myUid = auth.currentUser?.uid;
-                      if (!myUid) return;
-                      if (showFollowModal === 'followers') {
-                        // Remove them from my followerCount; remove me from their followingCount
-                        await updateDoc(doc(db, 'users', myUid), { followerCount: arrayRemove(item.id) });
-                        await updateDoc(doc(db, 'users', item.id), { followingCount: arrayRemove(myUid) });
-                        setRemovedFollowerIds(prev => new Set([...prev, item.id]));
-                      } else {
-                        // Remove them from my followingCount; remove me from their followerCount
+                  {showFollowModal === 'followers' ? (
+                    <TouchableOpacity
+                      style={[styles.followBtn, followingBack.has(item.id) && styles.followingBtn]}
+                      onPress={async () => {
+                        const myUid = auth.currentUser?.uid;
+                        if (!myUid) return;
+                        if (followingBack.has(item.id)) {
+                          await updateDoc(doc(db, 'users', myUid), { followingCount: arrayRemove(item.id) });
+                          await updateDoc(doc(db, 'users', item.id), { followerCount: arrayRemove(myUid) });
+                          setFollowingBack(prev => { const s = new Set(prev); s.delete(item.id); return s; });
+                        } else {
+                          await updateDoc(doc(db, 'users', myUid), { followingCount: arrayUnion(item.id) });
+                          await updateDoc(doc(db, 'users', item.id), { followerCount: arrayUnion(myUid) });
+                          setFollowingBack(prev => new Set([...prev, item.id]));
+                        }
+                      }}
+                    >
+                      <Text style={[styles.followBtnText, followingBack.has(item.id) && styles.followingBtnText]}>
+                        {followingBack.has(item.id) ? 'Following' : 'Follow'}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.removeBtn}
+                      onPress={async () => {
+                        const myUid = auth.currentUser?.uid;
+                        if (!myUid) return;
                         await updateDoc(doc(db, 'users', myUid), { followingCount: arrayRemove(item.id) });
                         await updateDoc(doc(db, 'users', item.id), { followerCount: arrayRemove(myUid) });
                         setRemovedFollowingIds(prev => new Set([...prev, item.id]));
-                      }
-                    }}
-                  >
-                    <Text style={styles.removeBtnText}>Remove</Text>
-                  </TouchableOpacity>
+                      }}
+                    >
+                      <Text style={styles.removeBtnText}>Unfollow</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               )}
             />
@@ -355,8 +384,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#d1d5db',
     height: 110,
     paddingTop: 59,
-    alignItems: 'flex-end',
-    paddingRight: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+  },
+  backBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#e5e7eb',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   createButton: {
     width: 42,
@@ -509,6 +548,36 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6b7280',
     marginTop: 2,
+  },
+  emptyModalContainer: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+  },
+  emptyModalText: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  followBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: '#3b82f6',
+  },
+  followingBtn: {
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+  },
+  followBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  followingBtnText: {
+    color: '#374151',
   },
   removeBtn: {
     paddingHorizontal: 12,

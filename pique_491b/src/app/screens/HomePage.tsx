@@ -5,14 +5,20 @@ import { SocialActivityCard } from '@/components/Placeholder';
 import { SearchOverlay } from '@/components/SearchOverlay';
 import { auth, db } from '@/firebase';
 import { collection, getDocs } from 'firebase/firestore';
-import { Bell, Menu, MessageCircle, Plus, Search } from 'lucide-react-native';
+import { Bell, Calendar, Menu, MessageCircle, Plus, Search, SlidersHorizontal, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 
 const mockSocialActivities: any[] = [];
-const categories = ['All', 'Music', 'Sports', 'Arts', 'Food & Drink', 'Tech', 'Outdoors'];
+const categories = [
+  'Music', 'Sports', 'Arts', 'Food & Drink', 'Tech', 'Outdoors',
+  'Comedy', 'Film', 'Theater', 'Gaming', 'Fitness', 'Nightlife',
+  'Family', 'Education', 'Fashion', 'Business', 'Health & Wellness',
+  'Travel', 'Charity', 'Religion',
+];
 const mockNotifications: any[] = [];
 
 const logo = require('@/assets/images/temp_logo.png');
@@ -34,6 +40,15 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   const [notifications, setNotifications] = useState(mockNotifications);
   const [events, setEvents] = useState<any[]>([]);
   const insets = useSafeAreaInsets();
+
+  // Date filter state
+  const [dateChip, setDateChip] = useState<'today' | 'week' | 'month' | null>(null);
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('oldest');
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [rangeStart, setRangeStart] = useState<Date | null>(null);
+  const [rangeEnd, setRangeEnd] = useState<Date | null>(null);
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
 
   const formattoMMDD = (startValue: any, endValue?: any): string | undefined => {
     const toDate = (value: any): Date | undefined => {
@@ -85,9 +100,55 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   const unreadNotificationCount = notifications.filter((n: any) => !n.read).length;
 
   const activityEvents = events.filter((e: any) => e.category !== 'Food & Drink');
-  const filteredEvents = selectedCategories.includes('All')
+  const categoryFiltered = selectedCategories.includes('All')
     ? activityEvents
     : activityEvents.filter((e: any) => selectedCategories.includes(e.category));
+
+  const getEventDate = (event: any): Date | null => {
+    const val = event.date ?? event.startDate;
+    if (!val) return null;
+    if (typeof val?.toDate === 'function') return val.toDate();
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const applyDateFilters = (list: any[]) => {
+    let result = [...list];
+    const now = new Date();
+
+    if (dateChip === 'today') {
+      result = result.filter(e => {
+        const d = getEventDate(e);
+        return d && d.toDateString() === now.toDateString();
+      });
+    } else if (dateChip === 'week') {
+      const weekEnd = new Date(now); weekEnd.setDate(now.getDate() + 7);
+      result = result.filter(e => { const d = getEventDate(e); return d && d >= now && d <= weekEnd; });
+    } else if (dateChip === 'month') {
+      const monthEnd = new Date(now); monthEnd.setMonth(now.getMonth() + 1);
+      result = result.filter(e => { const d = getEventDate(e); return d && d >= now && d <= monthEnd; });
+    }
+
+    if (rangeStart) result = result.filter(e => { const d = getEventDate(e); return d && d >= rangeStart; });
+    if (rangeEnd) {
+      const endOfDay = new Date(rangeEnd); endOfDay.setHours(23, 59, 59);
+      result = result.filter(e => { const d = getEventDate(e); return d && d <= endOfDay; });
+    }
+
+    result.sort((a, b) => {
+      const da = getEventDate(a)?.getTime() ?? 0;
+      const db = getEventDate(b)?.getTime() ?? 0;
+      if (sortOrder === 'oldest') {
+        return da - db;
+      } else {
+        return db - da;
+      }
+    });
+
+    return result;
+  };
+
+  const filteredEvents = applyDateFilters(categoryFiltered);
 
   const handleCategoryClick = (category: string) => {
     if (category === 'All') {
@@ -100,6 +161,17 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
         setSelectedCategories([...selectedCategories.filter(c => c !== 'All'), category]);
       }
     }
+  };
+
+  const hasActiveFilters = !selectedCategories.includes('All') || dateChip !== null || rangeStart !== null || rangeEnd !== null;
+  const activeFilterCount = (selectedCategories.includes('All') ? 0 : selectedCategories.length) + (dateChip ? 1 : 0) + (rangeStart || rangeEnd ? 1 : 0);
+
+  const handleClearAll = () => {
+    setSelectedCategories(['All']);
+    setDateChip(null);
+    setRangeStart(null);
+    setRangeEnd(null);
+    setSortOrder('oldest');
   };
 
   return (
@@ -235,66 +307,208 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
           </TouchableOpacity>
         </View>
 
-        {/* Category Filters */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.categoriesScroll}
-          contentContainerStyle={styles.categoriesContent}
-        >
-          {categories.map((category) => (
-            <TouchableOpacity
-              key={category}
-              onPress={() => handleCategoryClick(category)}
-              style={[
-                styles.categoryChip,
-                selectedCategories.includes(category) && styles.categoryChipActive,
-              ]}
-            >
-              <Text style={[
-                styles.categoryText,
-                selectedCategories.includes(category) && styles.categoryTextActive,
-              ]}>
-                {category}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        {/* Filter Button Row */}
+        <View style={styles.filterButtonRow}>
+          <TouchableOpacity
+            style={[styles.filterToggleBtn, hasActiveFilters && styles.filterToggleBtnActive]}
+            onPress={() => setShowFilterPanel(true)}
+          >
+            <SlidersHorizontal size={15} color={hasActiveFilters ? '#ffffff' : '#3b82f6'} />
+            <Text style={[styles.filterToggleText, hasActiveFilters && styles.filterToggleTextActive]}>
+              Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+            </Text>
+          </TouchableOpacity>
+          {!selectedCategories.includes('All') && (
+            <Text style={styles.activeFilterLabel}>{selectedCategories.join(', ')}</Text>
+          )}
+        </View>
 
-        {/* Event Carousel */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.carousel}
-          contentContainerStyle={styles.carouselContent}
-        >
-          {filteredEvents.map((event: any) => {
-            const dateVal = event.date ?? event.startDate;
-            const startDateStr = formattoMMDD(dateVal);
-            return (
-              <View key={event.id} style={styles.carouselItem}>
-                <EventCard
-                  event={{
-                    id: event.id,
-                    name: event.name ?? '',
-                    imageUrl: event.imageUrl ?? event.image,
-                    startDate: startDateStr ?? event.startDate,
-                    endDate: event.endDate,
-                    category: event.category,
-                    city: event.city ?? event.location,
-                    pricePoint: event.pricePoint,
-                    rating: event.rating,
-                    distance: event.distance,
-                  }}
-                  onPress={() => onNavigate('event', event.id)}
-                />
+        {/* Filter Modal */}
+        <Modal visible={showFilterPanel} transparent animationType="slide">
+          <TouchableOpacity style={styles.filterModalBackdrop} activeOpacity={1} onPress={() => setShowFilterPanel(false)} />
+          <View style={styles.filterModalSheet}>
+            {/* Header */}
+            <View style={styles.filterModalHeader}>
+              <Text style={styles.filterModalTitle}>Filter & Sort</Text>
+              <TouchableOpacity onPress={() => setShowFilterPanel(false)}>
+                <X size={22} color="#374151" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Categories */}
+              <Text style={styles.filterLabel}>Category</Text>
+              <TouchableOpacity
+                style={[styles.chip, styles.allChip, selectedCategories.includes('All') && styles.chipActive]}
+                onPress={() => handleCategoryClick('All')}
+              >
+                <Text style={[styles.chipText, selectedCategories.includes('All') && styles.chipTextActive]}>
+                  All Categories
+                </Text>
+              </TouchableOpacity>
+              <View style={[styles.chipRow, { marginTop: 8 }]}>
+                {categories.map(category => (
+                  <TouchableOpacity
+                    key={category}
+                    style={[styles.chip, selectedCategories.includes(category) && styles.chipActive]}
+                    onPress={() => handleCategoryClick(category)}
+                  >
+                    <Text style={[styles.chipText, selectedCategories.includes(category) && styles.chipTextActive]}>
+                      {category}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
               </View>
-            );
-          })}
-        </ScrollView>
 
-        {/* Activity Feed — stub, will populate when SocialActivityCard is converted */}
-        <View style={styles.feedContainer}>
+              {/* Quick Date */}
+              <Text style={styles.filterLabel}>Quick Date</Text>
+              <View style={styles.chipRow}>
+                {(['today', 'week', 'month'] as const).map(chip => (
+                  <TouchableOpacity
+                    key={chip}
+                    style={[styles.chip, dateChip === chip && styles.chipActive]}
+                    onPress={() => setDateChip(dateChip === chip ? null : chip)}
+                  >
+                    <Text style={[styles.chipText, dateChip === chip && styles.chipTextActive]}>
+                      {chip === 'today' ? 'Today' : chip === 'week' ? 'This Week' : 'This Month'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Date Range */}
+              <Text style={styles.filterLabel}>Date Range</Text>
+              <View style={styles.dateRangeRow}>
+                <TouchableOpacity style={styles.dateRangeBtn} onPress={() => { setDateChip(null); setShowStartPicker(true); }}>
+                  <Calendar size={14} color="#6b7280" />
+                  <Text style={styles.dateRangeBtnText}>{rangeStart ? rangeStart.toLocaleDateString() : 'Start date'}</Text>
+                </TouchableOpacity>
+                <Text style={styles.dateRangeSep}>→</Text>
+                <TouchableOpacity style={styles.dateRangeBtn} onPress={() => { setDateChip(null); setShowEndPicker(true); }}>
+                  <Calendar size={14} color="#6b7280" />
+                  <Text style={styles.dateRangeBtnText}>{rangeEnd ? rangeEnd.toLocaleDateString() : 'End date'}</Text>
+                </TouchableOpacity>
+                {(rangeStart || rangeEnd) && (
+                  <TouchableOpacity onPress={() => { setRangeStart(null); setRangeEnd(null); }} style={styles.clearBtn}>
+                    <Text style={styles.clearBtnText}>Clear</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              {showStartPicker && (
+                <DateTimePicker
+                  value={rangeStart ?? new Date()}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                  onChange={(_, date) => { setShowStartPicker(false); if (date) setRangeStart(date); }}
+                />
+              )}
+              {showEndPicker && (
+                <DateTimePicker
+                  value={rangeEnd ?? new Date()}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                  onChange={(_, date) => { setShowEndPicker(false); if (date) setRangeEnd(date); }}
+                />
+              )}
+
+              {/* Sort */}
+              <Text style={styles.filterLabel}>Sort By</Text>
+              <View style={styles.chipRow}>
+                {(['oldest', 'newest'] as const).map(opt => (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[styles.chip, sortOrder === opt && styles.chipActive]}
+                    onPress={() => setSortOrder(opt)}
+                  >
+                    <Text style={[styles.chipText, sortOrder === opt && styles.chipTextActive]}>
+                      {opt === 'oldest' ? 'Soonest First' : 'Latest First'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            {/* Footer buttons */}
+            <View style={styles.filterModalFooter}>
+              <TouchableOpacity style={styles.clearAllBtn} onPress={handleClearAll}>
+                <Text style={styles.clearAllBtnText}>Clear All</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.applyBtn} onPress={() => setShowFilterPanel(false)}>
+                <Text style={styles.applyBtnText}>Apply</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Event Carousel (shown when "All" is selected) */}
+        {selectedCategories.includes('All') && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.carousel}
+            contentContainerStyle={styles.carouselContent}
+          >
+            {filteredEvents.map((event: any) => {
+              const dateVal = event.date ?? event.startDate;
+              const startDateStr = formattoMMDD(dateVal);
+              return (
+                <View key={event.id} style={styles.carouselItem}>
+                  <EventCard
+                    event={{
+                      id: event.id,
+                      name: event.name ?? '',
+                      imageUrl: event.imageUrl ?? event.image,
+                      startDate: startDateStr ?? event.startDate,
+                      endDate: event.endDate,
+                      category: event.category,
+                      city: event.city ?? event.location,
+                      pricePoint: event.pricePoint,
+                      rating: event.rating,
+                      distance: event.distance,
+                    }}
+                    onPress={() => onNavigate('event', event.id)}
+                  />
+                </View>
+              );
+            })}
+          </ScrollView>
+        )}
+
+        {/* Category Event List (shown when a specific category is selected) */}
+        {!selectedCategories.includes('All') && (
+          <View style={styles.categoryList}>
+            {filteredEvents.length === 0 ? (
+              <Text style={styles.categoryListEmpty}>No events found for this category.</Text>
+            ) : (
+              filteredEvents.map((event: any) => {
+                const dateVal = event.date ?? event.startDate;
+                const startDateStr = formattoMMDD(dateVal);
+                return (
+                  <View key={event.id} style={styles.categoryListItem}>
+                    <EventCard
+                      event={{
+                        id: event.id,
+                        name: event.name ?? '',
+                        imageUrl: event.imageUrl ?? event.image,
+                        startDate: startDateStr ?? event.startDate,
+                        endDate: event.endDate,
+                        category: event.category,
+                        city: event.city ?? event.location,
+                        pricePoint: event.pricePoint,
+                        rating: event.rating,
+                        distance: event.distance,
+                      }}
+                      onPress={() => onNavigate('event', event.id)}
+                    />
+                  </View>
+                );
+              })
+            )}
+          </View>
+        )}
+
+        {/* Activity Feed — only shown when no category filter is active */}
+        {selectedCategories.includes('All') && <View style={styles.feedContainer}>
           <Text style={styles.feedTitle}>Activity Feed</Text>
           {mockSocialActivities.map((activity: any) => (
             <SocialActivityCard
@@ -306,7 +520,7 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
               }
             />
           ))}
-        </View>
+        </View>}
 
       </ScrollView>
 
@@ -499,35 +713,175 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#111827',
   },
-  // Categories
-  categoriesScroll: {
-    marginBottom: 20,
-  },
-  categoriesContent: {
+  // Filter button row
+  filterButtonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 18,
+    marginBottom: 16,
     gap: 10,
   },
-  categoryChip: {
-    paddingHorizontal: 20,
+  filterToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 9999,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#3b82f6',
     backgroundColor: '#eff6ff',
   },
-  categoryChipActive: {
+  filterToggleBtnActive: {
     backgroundColor: '#3b82f6',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
+    borderColor: '#3b82f6',
   },
-  categoryText: {
+  filterToggleText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#3b82f6',
+  },
+  filterToggleTextActive: {
+    color: '#ffffff',
+  },
+  activeFilterLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+    flexShrink: 1,
+  },
+  // Filter Modal
+  filterModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  filterModalSheet: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: 36,
+    maxHeight: '80%',
+  },
+  filterModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  filterModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  filterModalFooter: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+  },
+  clearAllBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#d1d5db',
+    alignItems: 'center',
+  },
+  clearAllBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  applyBtn: {
+    flex: 2,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#3b82f6',
+    alignItems: 'center',
+  },
+  applyBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  filterLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6b7280',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 10,
+    marginTop: 8,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 4,
+  },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1.5,
+    borderColor: '#e5e7eb',
+  },
+  allChip: {
+    alignSelf: 'flex-start',
+    borderColor: '#3b82f6',
+    backgroundColor: '#eff6ff',
+  },
+  chipActive: {
+    backgroundColor: '#3b82f6',
+    borderColor: '#3b82f6',
+  },
+  chipText: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#2563eb',
+    color: '#374151',
   },
-  categoryTextActive: {
+  chipTextActive: {
     color: '#ffffff',
+  },
+  dateRangeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+    flexWrap: 'wrap',
+  },
+  dateRangeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1.5,
+    borderColor: '#e5e7eb',
+    flex: 1,
+  },
+  dateRangeBtnText: {
+    fontSize: 12,
+    color: '#374151',
+    flex: 1,
+  },
+  dateRangeSep: {
+    fontSize: 14,
+    color: '#9ca3af',
+  },
+  clearBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#fee2e2',
+  },
+  clearBtnText: {
+    fontSize: 12,
+    color: '#dc2626',
+    fontWeight: '600',
   },
   // Carousel
   carousel: {
@@ -539,6 +893,20 @@ const styles = StyleSheet.create({
   },
   carouselItem: {
     width: 200,
+  },
+  // Category List
+  categoryList: {
+    paddingHorizontal: 18,
+    marginBottom: 16,
+  },
+  categoryListEmpty: {
+    fontSize: 13,
+    color: '#6b7280',
+    textAlign: 'center',
+    paddingVertical: 24,
+  },
+  categoryListItem: {
+    marginBottom: 14,
   },
   // Feed
   feedContainer: {
