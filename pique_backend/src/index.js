@@ -2,13 +2,13 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 
-const authRoutes = require("./routes/auth");
-const eventsRoutes = require("./routes/events");
-const usersRoutes = require("./routes/users");
-const reviewsRoutes = require("./routes/reviews");
-const leaderboardRoutes = require("./routes/leaderboard");
-const bookingsRoutes = require("./routes/bookings");
-const messagesRoutes = require("./routes/messages");
+const authRoutes = require("../routes/auth");
+const eventsRoutes = require("../routes/events");
+const usersRoutes = require("../routes/users");
+const reviewsRoutes = require("../routes/reviews");
+const leaderboardRoutes = require("../routes/leaderboard");
+const bookingsRoutes = require("../routes/bookings");
+const messagesRoutes = require("../routes/messages");
 
 const app = express();
 
