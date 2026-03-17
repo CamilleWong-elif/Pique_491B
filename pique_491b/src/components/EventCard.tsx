@@ -24,10 +24,11 @@ type Props = {
   event: Event;
   onPress: () => void;
   hideBookmark?: boolean;
+  isBookmarked?: boolean;
   onBookmarkPress?: (eventId?: string) => void;
 };
 
-export function EventCard({ event, onPress, hideBookmark = false, onBookmarkPress }: Props) {
+export function EventCard({ event, onPress, hideBookmark = false, isBookmarked = false, onBookmarkPress }: Props) {
   const [imageError, setImageError] = useState(false);
 
   const renderPricePoints = (pricePoint: number | undefined) => {
@@ -98,7 +99,7 @@ export function EventCard({ event, onPress, hideBookmark = false, onBookmarkPres
               accessibilityRole={"button"}
               accessibilityLabel={`Bookmark ${event.name}`}
             >
-              <Bookmark size={16} color="#4B5563" />
+              <Bookmark size={16} color={isBookmarked ? "#3b82f6" : "#4B5563"} fill={isBookmarked ? "#3b82f6" : "none"} />
             </TouchableOpacity>
           )}
 

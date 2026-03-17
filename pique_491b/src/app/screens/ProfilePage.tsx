@@ -1,14 +1,40 @@
+import {
+  apiGetEvents,
+  apiGetBookings,
+  apiGetFollowers,
+  apiGetFollowing,
+  apiToggleLike,
+  apiUpdateMe,
+  apiCheckUsername,
+  apiUnfollowUser,
+} from '@/api';
+import { EventCard } from '@/components/EventCard';
 import { NavigationBar } from '@/components/NavigationBar';
 import { useAuth } from '@/context/AuthContext';
-import { auth, db } from '@/firebase';
-import { Calendar, FileText, Heart, Pencil, Plus, X } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
-import { Alert, FlatList, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { arrayRemove, collection, doc, documentId, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
+import { auth, storage } from '@/firebase';
+import type { Event } from '@/types/Event';
+import * as ImagePicker from 'expo-image-picker';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { Calendar, Camera, FileText, Heart, Pencil, Plus, X } from 'lucide-react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1653771926391-d1b5608c90b2?w=400';
 
 type TabType = 'posted' | 'liked' | 'booked';
+type SortKey = 'latest' | 'oldest' | 'name-asc' | 'name-desc' | 'rating';
 
 interface ProfilePageProps {
   onNavigate: (page: string, eventId?: string, options?: any) => void;
@@ -23,62 +49,192 @@ export function ProfilePage({
   onOpenMessages,
   unreadMessageCount,
 }: ProfilePageProps) {
-  const { user, profile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
-  const [sortOption, setSortOption] = useState('latest');
+  const [postedSort, setPostedSort] = useState<SortKey>('latest');
+  const [likedSort, setLikedSort] = useState<SortKey>('latest');
+  const [bookedSort, setBookedSort] = useState<SortKey>('latest');
   const [showFollowModal, setShowFollowModal] = useState<'followers' | 'following' | null>(null);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [editingName, setEditingName] = useState('');
+  const [editingUsername, setEditingUsername] = useState('');
   const [editingBio, setEditingBio] = useState('');
+  const [editingPhotoURI, setEditingPhotoURI] = useState<string | null>(null);
+  const [usernameError, setUsernameError] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
   const [removedFollowerIds, setRemovedFollowerIds] = useState<Set<string>>(new Set());
   const [removedFollowingIds, setRemovedFollowingIds] = useState<Set<string>>(new Set());
 
+  // Event data
+  const [postedEvents, setPostedEvents] = useState<Event[]>([]);
+  const [likedEvents, setLikedEvents] = useState<Event[]>([]);
+  const [bookedEvents, setBookedEvents] = useState<Event[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(true);
+
   const userName = profile?.displayName ?? user?.displayName ?? user?.email ?? 'User';
-  const profilePicture = profile?.photoURL ?? user?.photoURL ?? DEFAULT_AVATAR;
+  const username = (profile as any)?.username ?? '';
+  const profilePicture = profile?.photoURL ?? (profile as any)?.avatar ?? user?.photoURL ?? DEFAULT_AVATAR;
   const bio = profile?.bio ?? '';
 
-  const followerUids: string[] = (profile?.followerCount ?? []);
-  const followingUids: string[] = (profile?.followingCount ?? []);
+  const followerUids: string[] = profile?.followerCount ?? [];
+  const followingUids: string[] = profile?.followingCount ?? [];
 
   const [followers, setFollowers] = useState<{ id: string; name: string; username: string; avatar: string }[]>([]);
   const [following, setFollowing] = useState<{ id: string; name: string; username: string; avatar: string }[]>([]);
 
+  // Fetch followers
   useEffect(() => {
-    if (followerUids.length === 0) { setFollowers([]); return; }
-    getDocs(query(collection(db, 'users'), where(documentId(), 'in', followerUids)))
-      .then(snap => setFollowers(snap.docs.map(d => ({
+    if (!user?.uid) { setFollowers([]); return; }
+    apiGetFollowers(user.uid)
+      .then((data: any[]) => setFollowers(data.map(d => ({
         id: d.id,
-        name: d.data().displayName ?? '',
-        username: `@${d.data().username ?? ''}`,
-        avatar: d.data().avatar ?? '',
-      }))));
-  }, [followerUids.join(',')]);
+        name: d.name ?? '',
+        username: `@${d.username ?? ''}`,
+        avatar: d.avatar ?? '',
+      }))))
+      .catch(() => setFollowers([]));
+  }, [followerUids.join(','), user?.uid]);
 
+  // Fetch following
   useEffect(() => {
-    if (followingUids.length === 0) { setFollowing([]); return; }
-    getDocs(query(collection(db, 'users'), where(documentId(), 'in', followingUids)))
-      .then(snap => setFollowing(snap.docs.map(d => ({
+    if (!user?.uid) { setFollowing([]); return; }
+    apiGetFollowing(user.uid)
+      .then((data: any[]) => setFollowing(data.map(d => ({
         id: d.id,
-        name: d.data().displayName ?? '',
-        username: `@${d.data().username ?? ''}`,
-        avatar: d.data().avatar ?? '',
-      }))));
-  }, [followingUids.join(',')]);
+        name: d.name ?? '',
+        username: `@${d.username ?? ''}`,
+        avatar: d.avatar ?? '',
+      }))))
+      .catch(() => setFollowing([]));
+  }, [followingUids.join(','), user?.uid]);
 
-  // Placeholder event lists — will populate when mockData is connected
-  const postedEvents: any[] = [];
-  const likedEvents: any[] = [];
-  const bookedEvents: any[] = [];
+  const mapToEvent = (e: any): Event => ({
+    id: e.id,
+    name: e.name ?? '',
+    imageUrl: e.imageUrl ?? e.image ?? undefined,
+    startDate: e.date ?? e.startDate ?? undefined,
+    category: e.categories?.[0] ?? e.category ?? undefined,
+    city: e.city ?? (e.location ? e.location.split(',')[0]?.trim() : undefined),
+    pricePoint: e.pricePoint ?? 0,
+    rating: e.rating ?? 0,
+    distance: e.distance ?? undefined,
+  });
+
+  // Fetch all event data
+  useEffect(() => {
+    const uid = user?.uid;
+    if (!uid) return;
+
+    const fetchData = async () => {
+      setLoadingEvents(true);
+      try {
+        // Fetch all events and filter posted ones client-side
+        const allEvents = await apiGetEvents();
+        const posted = allEvents
+          .filter((e: any) => e.createdBy === uid)
+          .map(mapToEvent);
+        setPostedEvents(posted);
+
+        // Filter liked events from all events
+        const likedIds: string[] = (profile as any)?.likedEvents ?? [];
+        const likedSet = new Set(likedIds);
+        const liked = allEvents
+          .filter((e: any) => likedSet.has(e.id))
+          .map(mapToEvent);
+        setLikedEvents(liked);
+
+        // Fetch booked events
+        const bookings = await apiGetBookings();
+        const bookedEventIds = [...new Set(bookings.map((b: any) => b.eventId))];
+        const bookedIdSet = new Set(bookedEventIds);
+        const booked = allEvents
+          .filter((e: any) => bookedIdSet.has(e.id))
+          .map(mapToEvent);
+        setBookedEvents(booked);
+      } catch (err) {
+        console.error('Error fetching profile events:', err);
+      } finally {
+        setLoadingEvents(false);
+      }
+    };
+
+    fetchData();
+  }, [user?.uid]);
+
+  // Sorting
+  const sortEvents = useCallback((events: Event[], sortBy: SortKey): Event[] => {
+    const sorted = [...events];
+    switch (sortBy) {
+      case 'latest':
+        return sorted.sort((a, b) => {
+          const da = a.startDate ? new Date(a.startDate).getTime() : 0;
+          const db2 = b.startDate ? new Date(b.startDate).getTime() : 0;
+          return db2 - da;
+        });
+      case 'oldest':
+        return sorted.sort((a, b) => {
+          const da = a.startDate ? new Date(a.startDate).getTime() : 0;
+          const db2 = b.startDate ? new Date(b.startDate).getTime() : 0;
+          return da - db2;
+        });
+      case 'name-asc':
+        return sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      case 'name-desc':
+        return sorted.sort((a, b) => (b.name || '').localeCompare(a.name || ''));
+      case 'rating':
+        return sorted.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+      default:
+        return sorted;
+    }
+  }, []);
+
+  const currentSort = activeTab === 'posted' ? postedSort : activeTab === 'liked' ? likedSort : bookedSort;
+  const setCurrentSort = (v: SortKey) => {
+    if (activeTab === 'posted') setPostedSort(v);
+    else if (activeTab === 'liked') setLikedSort(v);
+    else setBookedSort(v);
+  };
+
+  const sortedPosted = useMemo(() => sortEvents(postedEvents, postedSort), [postedEvents, postedSort, sortEvents]);
+  const sortedLiked = useMemo(() => sortEvents(likedEvents, likedSort), [likedEvents, likedSort, sortEvents]);
+  const sortedBooked = useMemo(() => sortEvents(bookedEvents, bookedSort), [bookedEvents, bookedSort, sortEvents]);
 
   const activeEvents =
-    activeTab === 'posted' ? postedEvents :
-    activeTab === 'liked' ? likedEvents :
-    bookedEvents;
+    activeTab === 'posted' ? sortedPosted :
+    activeTab === 'liked' ? sortedLiked :
+    sortedBooked;
 
+  // Edit Profile handlers
   const handleEditClick = () => {
     setEditingName(userName);
+    setEditingUsername(username);
     setEditingBio(bio);
+    setEditingPhotoURI(null);
+    setUsernameError('');
     setShowEditProfile(true);
+  };
+
+  const handlePickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please grant photo library access to change your profile picture.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setEditingPhotoURI(result.assets[0].uri);
+    }
+  };
+
+  const checkUsernameAvailable = async (uname: string): Promise<boolean> => {
+    if (!uname.trim()) return true;
+    const result = await apiCheckUsername(uname);
+    return result.available;
   };
 
   const handleSaveProfile = async () => {
@@ -86,140 +242,209 @@ export function ProfilePage({
     if (!uid) return;
 
     if (!editingName.trim()) {
-      Alert.alert("Missing username", "Please add a username.");
+      Alert.alert('Missing name', 'Please add a display name.');
       return;
     }
 
-    await setDoc(doc(db, 'users', uid), {
-      displayName: editingName.trim(),
-      bio: editingBio.trim(),
-      updatedAt: new Date(),
-    }, { merge: true });
+    if (editingUsername.trim()) {
+      const available = await checkUsernameAvailable(editingUsername);
+      if (!available) {
+        setUsernameError('This username is already taken.');
+        return;
+      }
+    }
 
-    setShowEditProfile(false);
+    setSavingProfile(true);
+    try {
+      const updates: Record<string, any> = {
+        displayName: editingName.trim(),
+        bio: editingBio.trim(),
+        username: editingUsername.toLowerCase().trim(),
+      };
+
+      // Upload profile picture if changed
+      if (editingPhotoURI) {
+        try {
+          const response = await fetch(editingPhotoURI);
+          const blob = await response.blob();
+          const storageRef = ref(storage, `profilePictures/${uid}`);
+          await uploadBytes(storageRef, blob);
+          const downloadURL = await getDownloadURL(storageRef);
+          updates.photoURL = downloadURL;
+          updates.avatar = downloadURL;
+        } catch (uploadErr) {
+          console.error('Photo upload error:', uploadErr);
+          Alert.alert('Upload failed', 'Could not upload profile picture. Other changes will still be saved.');
+        }
+      }
+
+      await apiUpdateMe(updates);
+      refreshProfile();
+      setShowEditProfile(false);
+    } catch (err) {
+      console.error('Save profile error:', err);
+      Alert.alert('Error', 'Failed to save profile changes.');
+    } finally {
+      setSavingProfile(false);
+    }
   };
 
-  const sortOptions = [
-    { label: 'Latest Date', value: 'latest' },
-    { label: 'Oldest First', value: 'oldest' },
-    { label: 'Name (A-Z)', value: 'name-asc' },
-    { label: 'Name (Z-A)', value: 'name-desc' },
-    { label: 'Highest Rating', value: 'rating' },
+  // Bookmark/like handler
+  const handleBookmarkPress = async (eventId?: string) => {
+    if (!eventId || !user?.uid) return;
+    const likedIds: string[] = (profile as any)?.likedEvents ?? [];
+    const isLiked = likedIds.includes(eventId);
+    try {
+      await apiToggleLike(eventId);
+      if (isLiked) {
+        setLikedEvents(prev => prev.filter(e => e.id !== eventId));
+      } else {
+        const existing = [...postedEvents, ...bookedEvents].find(e => e.id === eventId);
+        if (existing) {
+          setLikedEvents(prev => [...prev, existing]);
+        }
+      }
+    } catch (err) {
+      console.error('Bookmark error:', err);
+    }
+  };
+
+  const sortOptions: { label: string; value: SortKey }[] = [
+    { label: 'Latest', value: 'latest' },
+    { label: 'Oldest', value: 'oldest' },
+    { label: 'A-Z', value: 'name-asc' },
+    { label: 'Z-A', value: 'name-desc' },
+    { label: 'Rating', value: 'rating' },
   ];
+
+  const renderEventItem = ({ item }: { item: Event }) => (
+    <View style={styles.cardCell}>
+      <EventCard
+        event={item}
+        onPress={() => onNavigate('event', item.id)}
+        onBookmarkPress={handleBookmarkPress}
+        hideBookmark={activeTab === 'booked'}
+      />
+    </View>
+  );
 
   return (
     <View style={styles.container}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+      <FlatList
+        data={activeEvents}
+        keyExtractor={(item) => item.id}
+        numColumns={2}
+        columnWrapperStyle={styles.columnWrap}
+        contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
-      >
-        {/* Header Background */}
-        <View style={styles.headerBg}>
-          <TouchableOpacity
-            style={styles.createButton}
-            onPress={() => onNavigate('create')}
-          >
-            <Plus size={20} color="#374151" />
-          </TouchableOpacity>
-        </View>
+        renderItem={renderEventItem}
+        ListHeaderComponent={
+          <View>
+            {/* Header Background */}
+            <View style={styles.headerBg}>
+              <TouchableOpacity
+                style={styles.createButton}
+                onPress={() => onNavigate('create')}
+              >
+                <Plus size={20} color="#374151" />
+              </TouchableOpacity>
+            </View>
 
-        {/* Profile Info */}
-        <View style={styles.profileSection}>
-          <View style={styles.profileRow}>
-            {/* Avatar */}
-            <Image source={{ uri: profilePicture }} style={styles.avatar} />
+            {/* Profile Info */}
+            <View style={styles.profileSection}>
+              <View style={styles.profileRow}>
+                <Image source={{ uri: profilePicture }} style={styles.avatar} />
+                <View style={styles.profileInfo}>
+                  <Text style={styles.userName}>{userName}</Text>
+                  {username ? <Text style={styles.usernameText}>@{username}</Text> : null}
+                  <Text style={styles.bio}>{bio}</Text>
+                  <View style={styles.statsRow}>
+                    <TouchableOpacity onPress={() => setShowFollowModal('followers')}>
+                      <Text style={styles.statText}>
+                        <Text style={styles.statNumber}>{followers.length}</Text>
+                        {' '}Followers
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setShowFollowModal('following')}>
+                      <Text style={styles.statText}>
+                        <Text style={styles.statNumber}>{following.length}</Text>
+                        {' '}Following
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.editButton} onPress={handleEditClick}>
+                      <Pencil size={14} color="#ffffff" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
 
-            {/* Name, Bio, Stats */}
-            <View style={styles.profileInfo}>
-              <Text style={styles.userName}>{userName}</Text>
-              <Text style={styles.bio}>{bio}</Text>
-              <View style={styles.statsRow}>
-                <TouchableOpacity onPress={() => setShowFollowModal('followers')}>
-                  <Text style={styles.statText}>
-                    <Text style={styles.statNumber}>{followers.length}</Text>
-                    {' '}Followers
-                  </Text>
+              {/* Tab Icons */}
+              <View style={styles.tabIconRow}>
+                <TouchableOpacity
+                  style={[styles.tabIcon, activeTab === 'posted' && styles.tabIconActive]}
+                  onPress={() => setActiveTab('posted')}
+                >
+                  <FileText size={20} color="#ffffff" />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => setShowFollowModal('following')}>
-                  <Text style={styles.statText}>
-                    <Text style={styles.statNumber}>{following.length}</Text>
-                    {' '}Following
-                  </Text>
+                <TouchableOpacity
+                  style={[styles.tabIcon, activeTab === 'liked' && styles.tabIconActive]}
+                  onPress={() => setActiveTab('liked')}
+                >
+                  <Heart size={20} color="#ffffff" />
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.editButton} onPress={handleEditClick}>
-                  <Pencil size={14} color="#ffffff" />
+                <TouchableOpacity
+                  style={[styles.tabIcon, activeTab === 'booked' && styles.tabIconActive]}
+                  onPress={() => setActiveTab('booked')}
+                >
+                  <Calendar size={20} color="#ffffff" />
                 </TouchableOpacity>
+              </View>
+
+              {/* Content Header */}
+              <View style={styles.contentHeader}>
+                <Text style={styles.contentTitle}>
+                  {activeTab === 'posted' ? 'Events Posted' :
+                   activeTab === 'liked' ? 'Liked/Saved Events' :
+                   'Booked Events'}
+                </Text>
+
+                {/* Sort Chips */}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {sortOptions.map((opt) => (
+                    <TouchableOpacity
+                      key={opt.value}
+                      style={[styles.sortChip, currentSort === opt.value && styles.sortChipActive]}
+                      onPress={() => setCurrentSort(opt.value)}
+                    >
+                      <Text style={[styles.sortChipText, currentSort === opt.value && styles.sortChipTextActive]}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
               </View>
             </View>
           </View>
-
-          {/* Tab Icons */}
-          <View style={styles.tabIconRow}>
-            <TouchableOpacity
-              style={[styles.tabIcon, activeTab === 'posted' && styles.tabIconActive]}
-              onPress={() => setActiveTab('posted')}
-            >
-              <FileText size={20} color="#ffffff" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.tabIcon, activeTab === 'liked' && styles.tabIconActive]}
-              onPress={() => setActiveTab('liked')}
-            >
-              <Heart size={20} color="#ffffff" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.tabIcon, activeTab === 'booked' && styles.tabIconActive]}
-              onPress={() => setActiveTab('booked')}
-            >
-              <Calendar size={20} color="#ffffff" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Content Header */}
-          <View style={styles.contentHeader}>
-            <Text style={styles.contentTitle}>
-              {activeTab === 'posted' ? 'Events Posted' :
-               activeTab === 'liked' ? 'Liked/Saved Events' :
-               'Booked Events'}
-            </Text>
-
-            {/* Sort Picker — simplified as buttons for now */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {sortOptions.map((opt) => (
-                <TouchableOpacity
-                  key={opt.value}
-                  style={[styles.sortChip, sortOption === opt.value && styles.sortChipActive]}
-                  onPress={() => setSortOption(opt.value)}
-                >
-                  <Text style={[styles.sortChipText, sortOption === opt.value && styles.sortChipTextActive]}>
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-
-          {/* Event Grid — stub until EventCard is converted */}
-          {activeEvents.length === 0 ? (
+        }
+        ListEmptyComponent={
+          loadingEvents ? (
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No events here yet</Text>
+              <ActivityIndicator size="large" color="#3b82f6" />
             </View>
           ) : (
-            <View style={styles.eventGrid}>
-              {activeEvents.map((event: any) => (
-                <TouchableOpacity
-                  key={event.id}
-                  style={styles.eventGridItem}
-                  onPress={() => onNavigate('event', event.id)}
-                >
-                  <Text>{event.name}</Text>
-                </TouchableOpacity>
-              ))}
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>
+                {activeTab === 'posted'
+                  ? 'You haven\'t posted any events yet'
+                  : activeTab === 'liked'
+                  ? 'You haven\'t liked any events yet'
+                  : 'You haven\'t booked any events yet'}
+              </Text>
             </View>
-          )}
-        </View>
-      </ScrollView>
+          )
+        }
+        ListFooterComponent={<View style={{ height: 120 }} />}
+      />
 
       <NavigationBar
         currentPage="profile"
@@ -261,18 +486,19 @@ export function ProfilePage({
                   <TouchableOpacity
                     style={styles.removeBtn}
                     onPress={async () => {
-                      const myUid = auth.currentUser?.uid;
-                      if (!myUid) return;
-                      if (showFollowModal === 'followers') {
-                        // Remove them from my followerCount; remove me from their followingCount
-                        await updateDoc(doc(db, 'users', myUid), { followerCount: arrayRemove(item.id) });
-                        await updateDoc(doc(db, 'users', item.id), { followingCount: arrayRemove(myUid) });
-                        setRemovedFollowerIds(prev => new Set([...prev, item.id]));
-                      } else {
-                        // Remove them from my followingCount; remove me from their followerCount
-                        await updateDoc(doc(db, 'users', myUid), { followingCount: arrayRemove(item.id) });
-                        await updateDoc(doc(db, 'users', item.id), { followerCount: arrayRemove(myUid) });
-                        setRemovedFollowingIds(prev => new Set([...prev, item.id]));
+                      if (!user?.uid) return;
+                      try {
+                        if (showFollowModal === 'followers') {
+                          // Remove follower: they unfollow us
+                          await apiUnfollowUser(user.uid);
+                          setRemovedFollowerIds(prev => new Set([...prev, item.id]));
+                        } else {
+                          // Unfollow them
+                          await apiUnfollowUser(item.id);
+                          setRemovedFollowingIds(prev => new Set([...prev, item.id]));
+                        }
+                      } catch (err) {
+                        console.error('Remove error:', err);
                       }
                     }}
                   >
@@ -296,7 +522,19 @@ export function ProfilePage({
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.inputLabel}>Name</Text>
+            {/* Profile Picture */}
+            <View style={styles.editAvatarSection}>
+              <Image
+                source={{ uri: editingPhotoURI || profilePicture }}
+                style={styles.editAvatar}
+              />
+              <TouchableOpacity style={styles.changePhotoBtn} onPress={handlePickImage}>
+                <Camera size={16} color="#ffffff" />
+                <Text style={styles.changePhotoText}>Change Photo</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.inputLabel}>Display Name</Text>
             <TextInput
               style={styles.textInput}
               value={editingName}
@@ -305,6 +543,23 @@ export function ProfilePage({
               placeholderTextColor="#9ca3af"
               maxLength={50}
             />
+
+            <Text style={styles.inputLabel}>Username</Text>
+            <TextInput
+              style={[styles.textInput, usernameError ? styles.textInputError : null]}
+              value={editingUsername}
+              onChangeText={(text) => {
+                setEditingUsername(text.replace(/[^a-zA-Z0-9_]/g, ''));
+                setUsernameError('');
+              }}
+              placeholder="Choose a username"
+              placeholderTextColor="#9ca3af"
+              maxLength={30}
+              autoCapitalize="none"
+            />
+            {usernameError ? (
+              <Text style={styles.errorText}>{usernameError}</Text>
+            ) : null}
 
             <Text style={styles.inputLabel}>Bio</Text>
             <TextInput
@@ -327,10 +582,15 @@ export function ProfilePage({
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.saveButton}
+                style={[styles.saveButton, savingProfile && styles.saveButtonDisabled]}
                 onPress={handleSaveProfile}
+                disabled={savingProfile}
               >
-                <Text style={styles.saveButtonText}>Save Changes</Text>
+                {savingProfile ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.saveButtonText}>Save Changes</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -345,11 +605,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#ffffff',
   },
-  scroll: {
-    flex: 1,
+  listContent: {
+    paddingBottom: 0,
   },
-  scrollContent: {
-    paddingBottom: 120,
+  columnWrap: {
+    justifyContent: 'space-between',
+    paddingHorizontal: 26,
+  },
+  cardCell: {
+    flex: 1,
+    maxWidth: '48%',
+    paddingBottom: 16,
   },
   headerBg: {
     backgroundColor: '#d1d5db',
@@ -392,6 +658,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#111827',
+    marginBottom: 2,
+  },
+  usernameText: {
+    fontSize: 13,
+    color: '#6b7280',
     marginBottom: 4,
   },
   bio: {
@@ -468,17 +739,6 @@ const styles = StyleSheet.create({
   sortChipTextActive: {
     color: '#ffffff',
   },
-  eventGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 16,
-  },
-  eventGridItem: {
-    width: '47%',
-    padding: 12,
-    backgroundColor: '#f3f4f6',
-    borderRadius: 8,
-  },
   emptyContainer: {
     alignItems: 'center',
     paddingVertical: 48,
@@ -488,6 +748,32 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     textAlign: 'center',
   },
+  // Edit Profile
+  editAvatarSection: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  editAvatar: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    marginBottom: 10,
+  },
+  changePhotoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#374151',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  changePhotoText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  // Users
   userRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -563,6 +849,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#111827',
   },
+  textInputError: {
+    borderColor: '#dc2626',
+  },
   textArea: {
     height: 80,
     textAlignVertical: 'top',
@@ -571,6 +860,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6b7280',
     textAlign: 'right',
+    marginTop: 4,
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#dc2626',
     marginTop: 4,
   },
   modalActions: {
@@ -597,6 +891,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#3b82f6',
     borderRadius: 8,
     alignItems: 'center',
+  },
+  saveButtonDisabled: {
+    opacity: 0.6,
   },
   saveButtonText: {
     fontSize: 14,
