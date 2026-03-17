@@ -1,5 +1,5 @@
 const express = require("express");
-const { db } = require("../config/firebase");
+const { db } = require("../src/config/firebase");
 const { authenticate } = require("../middleware/auth");
 
 const router = express.Router();
