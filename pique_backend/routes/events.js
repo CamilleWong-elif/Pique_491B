@@ -1,6 +1,7 @@
 const express = require("express");
 const { db } = require("../config/firebase");
 const { authenticate } = require("../middleware/auth");
+const { FieldValue } = require("firebase-admin/firestore");
 
 const router = express.Router();
 
@@ -112,6 +113,35 @@ router.get("/", authenticate, async (req, res) => {
   } catch (err) {
     console.error("GET /api/events error:", err);
     return res.status(500).json({ error: "Failed to fetch events" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/events/:id/like — Toggle like on an event
+// Adds/removes the event ID from the user's likedEvents array
+// ---------------------------------------------------------------------------
+router.post("/:id/like", authenticate, async (req, res) => {
+  try {
+    const eventDoc = await db.collection("events").doc(req.params.id).get();
+    if (!eventDoc.exists) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+
+    const userRef = db.collection("users").doc(req.user.uid);
+    const userDoc = await userRef.get();
+    const likedEvents = userDoc.data()?.likedEvents || [];
+    const isLiked = likedEvents.includes(req.params.id);
+
+    if (isLiked) {
+      await userRef.update({ likedEvents: FieldValue.arrayRemove(req.params.id) });
+    } else {
+      await userRef.update({ likedEvents: FieldValue.arrayUnion(req.params.id) });
+    }
+
+    return res.json({ liked: !isLiked });
+  } catch (err) {
+    console.error("POST /api/events/:id/like error:", err);
+    return res.status(500).json({ error: "Failed to toggle like" });
   }
 });
 
