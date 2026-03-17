@@ -133,9 +133,9 @@ router.post("/:id/like", authenticate, async (req, res) => {
     const isLiked = likedEvents.includes(req.params.id);
 
     if (isLiked) {
-      await userRef.update({ likedEvents: FieldValue.arrayRemove(req.params.id) });
+      await userRef.set({ likedEvents: FieldValue.arrayRemove(req.params.id) }, { merge: true });
     } else {
-      await userRef.update({ likedEvents: FieldValue.arrayUnion(req.params.id) });
+      await userRef.set({ likedEvents: FieldValue.arrayUnion(req.params.id) }, { merge: true });
     }
 
     return res.json({ liked: !isLiked });

@@ -27,7 +27,8 @@ import {
   Navigation,
   Bookmark,
 } from "lucide-react-native";
-import { apiGetEvent } from '@/api';
+import { apiGetEvent, apiCreateBooking } from '@/api';
+import { useAuth } from '@/context/AuthContext';
 
 // ----- Types (adjust to your app) -----
 export type UserImage = { url: string; userName: string };
@@ -97,9 +98,11 @@ export function EventDetailScreen({
   onNavigate,
   activeTab,
 }: Props) {
+  const { user } = useAuth();
   const [event, setEvent] = useState<Event | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [booking, setBooking] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -239,7 +242,22 @@ export function EventDetailScreen({
     { id: 4, author: "John D.", rating: 4, comment: "Really enjoyed it. Will come back again!", date: "3 weeks ago" },
   ];
 
-  const handleBookClick = () => onNavigate?.("payment", event.id);
+  const handleBookClick = async () => {
+    if (booking) return;
+    setBooking(true);
+    try {
+      await apiCreateBooking({
+        eventId: event.id,
+        quantity: 1,
+        total: 0,
+        email: user?.email || 'user@placeholder.com',
+      });
+      onNavigate?.('home');
+    } catch (err) {
+      console.error('Booking error:', err);
+      setBooking(false);
+    }
+  };
 
   const onHeroScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
@@ -563,12 +581,13 @@ export function EventDetailScreen({
         <View style={styles.bookWrap} pointerEvents="box-none">
           <TouchableOpacity
             onPress={handleBookClick}
-            style={styles.bookBtn}
+            style={[styles.bookBtn, booking && { opacity: 0.6 }]}
             activeOpacity={0.9}
+            disabled={booking}
             accessibilityRole="button"
             accessibilityLabel="Book Now"
           >
-            <Text style={styles.bookText}>Book Now</Text>
+            <Text style={styles.bookText}>{booking ? 'Booking...' : 'Book Now'}</Text>
           </TouchableOpacity>
         </View>
       )}
