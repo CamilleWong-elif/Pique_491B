@@ -1,8 +1,8 @@
 import { EventCard } from '@/components/EventCard';
 import { NavigationBar } from '@/components/NavigationBar';
-import { auth, db } from "@/firebase";
+import { auth } from "@/firebase";
+import { apiGetEvents, apiGetUsers } from '@/api';
 import * as Location from 'expo-location';
-import { collection, getDocs } from "firebase/firestore";
 import { ArrowLeft, CircleHelp, Crosshair, Star, Users, X } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Dimensions, Image, PanResponder, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -87,19 +87,15 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
     if (!auth.currentUser) return;
     const fetchEvents = async () => {
       try {
-        const eventDocs = await getDocs(collection(db, 'events'));
-        console.log('ExplorePage: Fetched events count:', eventDocs.docs.length);
-        const eventsList = eventDocs.docs.map(doc => {
-          const d = doc.data();
-          return {
-            id: doc.id,
-            ...d,
-            lat: d.lat ?? d.latitude,
-            lng: d.lng ?? d.longitude,
-            category: d.category ?? (Array.isArray(d.categories) ? d.categories[0] : d.category),
-          };
-        });
-        setEvents(eventsList as any[]);
+        const eventsList = await apiGetEvents();
+        console.log('ExplorePage: Fetched events count:', eventsList.length);
+        const normalized = eventsList.map((e: any) => ({
+          ...e,
+          lat: e.lat ?? e.latitude,
+          lng: e.lng ?? e.longitude,
+          category: e.category ?? (Array.isArray(e.categories) ? e.categories[0] : e.category),
+        }));
+        setEvents(normalized as any[]);
       } catch (error: any) {
         console.error('ExplorePage: Error fetching events:', error?.code ?? error?.message ?? error);
       }
@@ -161,18 +157,16 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
   useEffect(() => {
     const fetchFriends = async () => {
       try {
-        const friendDocs = await getDocs(collection(db, 'users'));
-        const friendsList = friendDocs.docs
-          .filter(doc => doc.id !== auth.currentUser?.uid)  // exclude current user
-          .map(doc => ({
-            id: doc.id,
-            name: doc.data().displayName || 'Unknown',
-            lat: doc.data().lat || 0,
-            lng: doc.data().lng || 0,
-            photoURL: doc.data().photoURL ?? doc.data().avatar ?? null,
-          }));
+        const friendsList = await apiGetUsers();
+        const mapped = friendsList.map((u: any) => ({
+          id: u.id,
+          name: u.name,
+          lat: u.lat || 0,
+          lng: u.lng || 0,
+          photoURL: u.photoURL ?? u.avatar ?? null,
+        }));
 
-        setFriends(friendsList);
+        setFriends(mapped);
         setLoading(false);
       } catch (error) {
         console.error("Error fetching friends:", error);

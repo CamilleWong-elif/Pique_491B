@@ -17,8 +17,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { addDoc, collection } from 'firebase/firestore';
-import { auth, db } from '@/firebase';
+import { apiCreateEvent } from '@/api';
 
 const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
@@ -194,18 +193,16 @@ export function CreateEventPage({ onNavigate, onOpenMessages, unreadMessageCount
         return;
       }
 
-      await addDoc(collection(db, "events"), {
+      await apiCreateEvent({
         name: eventName,
         description,
         location,
         ...(locationCoords && { latitude: locationCoords.lat, longitude: locationCoords.lng }),
-        date: date,
+        date,
         maxCapacity: capacityNum,
-        ageRange: ageRange,
+        ageRange,
         categories: selectedCategories,
         ticketTiers,
-        ...(auth.currentUser?.uid && { createdBy: auth.currentUser.uid }),
-        createdAt: new Date(),
       });
       if (onEventCreated) onEventCreated();
       console.log('Navigating to event-posted with:', eventName);

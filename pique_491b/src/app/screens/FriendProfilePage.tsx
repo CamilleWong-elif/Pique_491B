@@ -1,8 +1,8 @@
 // FriendProfileScreen.tsx
 //Mock Data at 100-111, 126-153
 import React, { useMemo, useState, useEffect } from "react";
-import { arrayRemove, arrayUnion, collection, doc, documentId, getDocs, getDoc, query, updateDoc, where } from "firebase/firestore"
-import { auth, db } from "@/firebase";
+import { apiGetUser, apiFollowUser, apiUnfollowUser, apiGetFollowers, apiGetFollowing } from "@/api";
+import { auth } from "@/firebase";
 import {
   View,
   Text,
@@ -114,16 +114,16 @@ export function FriendProfileScreen({
 
   const handleFollowToggle = async () => {
     if (!currentUid) return;
-    const friendRef = doc(db, "users", friendName);
-    const myRef = doc(db, "users", currentUid);
-    if (isFollowing) {
-      await updateDoc(friendRef, { followerCount: arrayRemove(currentUid) });
-      await updateDoc(myRef, { followingCount: arrayRemove(friendName) });
-      setFriendData(prev => ({ ...prev, followerUids: prev.followerUids.filter(id => id !== currentUid) }));
-    } else {
-      await updateDoc(friendRef, { followerCount: arrayUnion(currentUid) });
-      await updateDoc(myRef, { followingCount: arrayUnion(friendName) });
-      setFriendData(prev => ({ ...prev, followerUids: [...prev.followerUids, currentUid] }));
+    try {
+      if (isFollowing) {
+        await apiUnfollowUser(friendName);
+        setFriendData(prev => ({ ...prev, followerUids: prev.followerUids.filter(id => id !== currentUid) }));
+      } else {
+        await apiFollowUser(friendName);
+        setFriendData(prev => ({ ...prev, followerUids: [...prev.followerUids, currentUid] }));
+      }
+    } catch (err) {
+      console.error("Follow toggle error:", err);
     }
   };
 
@@ -131,28 +131,27 @@ export function FriendProfileScreen({
   useEffect(() => {
     const fetchFriendData = async () => {
       try {
-        const userDoc = await getDoc(doc(db, "users", friendName));
-        const userData = userDoc.data();
-        
+        const userData = await apiGetUser(friendName);
+
         const bios = [
-          "Event enthusiast | Foodie | Explorer 🌟",
-          "Adventure seeker 🏔️ | Coffee lover ☕",
-          "Music lover 🎵 | Travel addict ✈️",
-          "Fitness junkie 💪 | Nature lover 🌲",
-          "Art enthusiast 🎨 | Photographer 📸",
-          "Bookworm 📚 | Movie buff 🎬",
-          "Foodie explorer 🍜 | Chef wannabe 👨‍🍳",
-          "Party animal 🎉 | Social butterfly 🦋",
-          "Yoga instructor 🧘 | Wellness advocate 💚",
-          "Gamer 🎮 | Tech geek 💻",
+          "Event enthusiast | Foodie | Explorer",
+          "Adventure seeker | Coffee lover",
+          "Music lover | Travel addict",
+          "Fitness junkie | Nature lover",
+          "Art enthusiast | Photographer",
+          "Bookworm | Movie buff",
+          "Foodie explorer | Chef wannabe",
+          "Party animal | Social butterfly",
+          "Yoga instructor | Wellness advocate",
+          "Gamer | Tech geek",
         ];
-        const hash = friendName.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+        const hash = friendName.split("").reduce((acc: number, ch: string) => acc + ch.charCodeAt(0), 0);
 
         setFriendData({
           id: userData?.id || friendName,
           name: userData?.displayName || "",
           bio: userData?.bio || bios[hash % bios.length],
-          avatar: userData?.avatar || getAvatarWithFallback(friendName),
+          avatar: userData?.avatar || userData?.photoURL || getAvatarWithFallback(friendName),
           followerUids: userData?.followerCount ?? [],
           followingUids: userData?.followingCount ?? [],
         });
@@ -168,30 +167,30 @@ export function FriendProfileScreen({
   const [mockFollowing, setMockFollowing] = useState<UserRow[]>([]);
 
   useEffect(() => {
-    const uids = friendData.followerUids;
-    if (uids.length === 0) { setMockFollowers([]); return; }
-    getDocs(query(collection(db, "users"), where(documentId(), "in", uids)))
-      .then(snap => setMockFollowers(snap.docs.map(d => ({
+    if (friendData.followerUids.length === 0) { setMockFollowers([]); return; }
+    apiGetFollowers(friendName)
+      .then((data: any[]) => setMockFollowers(data.map(d => ({
         id: d.id,
-        name: d.data().displayName ?? "",
-        username: `@${d.data().username ?? ""}`,
-        bio: d.data().bio ?? "",
-        avatar: d.data().avatar ?? "",
-      }))));
-  }, [friendData.followerUids.join(",")]);
+        name: d.name ?? "",
+        username: `@${d.username ?? ""}`,
+        bio: "",
+        avatar: d.avatar ?? "",
+      }))))
+      .catch(() => setMockFollowers([]));
+  }, [friendData.followerUids.join(","), friendName]);
 
   useEffect(() => {
-    const uids = friendData.followingUids;
-    if (uids.length === 0) { setMockFollowing([]); return; }
-    getDocs(query(collection(db, "users"), where(documentId(), "in", uids)))
-      .then(snap => setMockFollowing(snap.docs.map(d => ({
+    if (friendData.followingUids.length === 0) { setMockFollowing([]); return; }
+    apiGetFollowing(friendName)
+      .then((data: any[]) => setMockFollowing(data.map(d => ({
         id: d.id,
-        name: d.data().displayName ?? "",
-        username: `@${d.data().username ?? ""}`,
-        bio: d.data().bio ?? "",
-        avatar: d.data().avatar ?? "",
-      }))));
-  }, [friendData.followingUids.join(",")]);
+        name: d.name ?? "",
+        username: `@${d.username ?? ""}`,
+        bio: "",
+        avatar: d.avatar ?? "",
+      }))))
+      .catch(() => setMockFollowing([]));
+  }, [friendData.followingUids.join(","), friendName]);
 
   // Mock events (same as your web sample)
   const postedEventsRaw = useMemo(() => {
@@ -506,16 +505,16 @@ export function FriendProfileScreen({
                     accessibilityRole="button"
                     accessibilityLabel="Remove"
                     onPress={async () => {
-                      if (showFollowModal === "followers") {
-                        // Remove them from our followerCount, remove us from their followingCount
-                        await updateDoc(doc(db, "users", friendName), { followerCount: arrayRemove(user.id) });
-                        await updateDoc(doc(db, "users", user.id), { followingCount: arrayRemove(friendName) });
-                        setRemovedFollowerIds(prev => new Set([...prev, user.id]));
-                      } else {
-                        // Remove them from our followingCount, remove us from their followerCount
-                        await updateDoc(doc(db, "users", friendName), { followingCount: arrayRemove(user.id) });
-                        await updateDoc(doc(db, "users", user.id), { followerCount: arrayRemove(friendName) });
-                        setRemovedFollowingIds(prev => new Set([...prev, user.id]));
+                      try {
+                        if (showFollowModal === "followers") {
+                          await apiUnfollowUser(friendName);
+                          setRemovedFollowerIds(prev => new Set([...prev, user.id]));
+                        } else {
+                          await apiUnfollowUser(user.id);
+                          setRemovedFollowingIds(prev => new Set([...prev, user.id]));
+                        }
+                      } catch (err) {
+                        console.error("Remove error:", err);
                       }
                     }}
                   >

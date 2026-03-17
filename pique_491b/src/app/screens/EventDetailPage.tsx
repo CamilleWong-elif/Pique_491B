@@ -27,8 +27,7 @@ import {
   Navigation,
   Bookmark,
 } from "lucide-react-native";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "@/firebase";
+import { apiGetEvent } from '@/api';
 
 // ----- Types (adjust to your app) -----
 export type UserImage = { url: string; userName: string };
@@ -109,13 +108,9 @@ export function EventDetailScreen({
 
     (async () => {
       try {
-        const snap = await getDoc(doc(db, "events", eventId));
+        const data = await apiGetEvent(eventId);
         if (cancelled) return;
-        if (!snap.exists()) {
-          setFetchError("Event not found.");
-        } else {
-          setEvent(mapFirestoreToEvent(snap.id, snap.data() as Record<string, any>));
-        }
+        setEvent(mapFirestoreToEvent(data.id, data));
       } catch (err: any) {
         if (!cancelled) setFetchError(err?.message ?? "Failed to load event.");
       } finally {

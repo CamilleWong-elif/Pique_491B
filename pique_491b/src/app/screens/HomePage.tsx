@@ -3,8 +3,8 @@ import { NavigationBar } from '@/components/NavigationBar';
 import { NotificationsModal } from '@/components/NotificationsModal';
 import { SocialActivityCard } from '@/components/Placeholder';
 import { SearchOverlay } from '@/components/SearchOverlay';
-import { auth, db } from '@/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { useAuth } from '@/context/AuthContext';
+import { apiGetEvents, apiToggleLike } from '@/api';
 import { Bell, Menu, MessageCircle, Plus, Search } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -25,6 +25,7 @@ interface HomePageProps {
 }
 
 export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSignOut }: HomePageProps) {
+  const { user, profile } = useAuth();
   const [selectedCategories, setSelectedCategories] = useState<string[]>(['All']);
   const [searchQuery, setSearchQuery] = useState('');
   const [location, setLocation] = useState('Los Angeles, CA');
@@ -33,7 +34,36 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState(mockNotifications);
   const [events, setEvents] = useState<any[]>([]);
+  const [likedEventIds, setLikedEventIds] = useState<Set<string>>(new Set());
   const insets = useSafeAreaInsets();
+
+  // Sync liked events from profile
+  useEffect(() => {
+    const liked: string[] = (profile as any)?.likedEvents ?? [];
+    setLikedEventIds(new Set(liked));
+  }, [(profile as any)?.likedEvents]);
+
+  const handleBookmarkPress = async (eventId?: string) => {
+    if (!eventId || !user?.uid) return;
+    const wasLiked = likedEventIds.has(eventId);
+    try {
+      // Optimistic update
+      if (wasLiked) {
+        setLikedEventIds(prev => { const next = new Set(prev); next.delete(eventId); return next; });
+      } else {
+        setLikedEventIds(prev => new Set(prev).add(eventId));
+      }
+      await apiToggleLike(eventId);
+    } catch (err) {
+      // Revert on failure
+      if (wasLiked) {
+        setLikedEventIds(prev => new Set(prev).add(eventId));
+      } else {
+        setLikedEventIds(prev => { const next = new Set(prev); next.delete(eventId); return next; });
+      }
+      console.error('Bookmark error:', err);
+    }
+  };
 
   const formattoMMDD = (startValue: any, endValue?: any): string | undefined => {
     const toDate = (value: any): Date | undefined => {
@@ -59,24 +89,18 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   };
 
   useEffect(() => {
-    if (!auth.currentUser) return;
     const fetchEvents = async () => {
       try {
-        const eventDocs = await getDocs(collection(db, 'events'));
-        console.log('HomePage: Fetched events count:', eventDocs.docs.length);
-        const eventsList = eventDocs.docs.map(doc => {
-          const d = doc.data();
-          return {
-            id: doc.id,
-            ...d,
-            lat: d.lat ?? d.latitude,
-            lng: d.lng ?? d.longitude,
-            category: d.category ?? (Array.isArray(d.categories) ? d.categories[0] : d.category),
-          };
-        });
-        setEvents(eventsList);
+        const eventsList = await apiGetEvents();
+        const normalized = eventsList.map((e: any) => ({
+          ...e,
+          lat: e.lat ?? e.latitude,
+          lng: e.lng ?? e.longitude,
+          category: e.category ?? (Array.isArray(e.categories) ? e.categories[0] : e.category),
+        }));
+        setEvents(normalized);
       } catch (error: any) {
-        console.error('HomePage: Error fetching events:', error?.code ?? error?.message ?? error);
+        console.error('HomePage: Error fetching events:', error?.message ?? error);
       }
     };
     fetchEvents();
@@ -287,6 +311,8 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
                     distance: event.distance,
                   }}
                   onPress={() => onNavigate('event', event.id)}
+                  isBookmarked={likedEventIds.has(event.id)}
+                  onBookmarkPress={handleBookmarkPress}
                 />
               </View>
             );
