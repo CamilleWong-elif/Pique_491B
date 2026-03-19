@@ -1,7 +1,9 @@
 import { auth } from '@/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { GoogleAuthProvider, sendPasswordResetEmail, signInWithCredential, signInWithEmailAndPassword } from 'firebase/auth';
+import { GoogleAuthProvider, sendPasswordResetEmail, signInWithCredential, signInWithCustomToken, signInWithEmailAndPassword } from 'firebase/auth';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+import * as AuthSession from 'expo-auth-session';
+import * as WebBrowser from 'expo-web-browser';
 import Constants from 'expo-constants';
 import { Check, Eye, EyeOff, Lock, Mail, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
@@ -17,9 +19,17 @@ const { width } = Dimensions.get('window');
 const LOGO_SIZE = width * 0.4;
 
 
+WebBrowser.maybeCompleteAuthSession();
+
 const googleAuthConfig = Constants.expoConfig?.extra?.googleAuth as
   | { webClientId?: string }
   | undefined;
+
+const microsoftAuthConfig = Constants.expoConfig?.extra?.microsoftAuth as
+  | { clientId?: string }
+  | undefined;
+
+const msRedirectUri = AuthSession.makeRedirectUri({ scheme: 'piqueapp', path: 'auth' });
 
 interface LoginScreenProps {
   onLogin: () => void;
@@ -38,6 +48,11 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
   const [forgotPasswordMessage, setForgotPasswordMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
   const insets = useSafeAreaInsets();
+
+  const microsoftDiscovery = {
+    authorizationEndpoint: 'https://login.microsoftonline.com/d175679b-acd3-4644-be82-af041982977a/oauth2/v2.0/authorize',
+    tokenEndpoint: 'https://login.microsoftonline.com/d175679b-acd3-4644-be82-af041982977a/oauth2/v2.0/token',
+  };
 
   // Configure Google Sign-In once on mount
   useEffect(() => {
@@ -141,6 +156,97 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
   const handleSocialLogin = (provider: string) => {
     console.log(`Logging in with ${provider}`);
     onLogin();
+  };
+
+  // On mount, check if we're returning from a Microsoft auth redirect
+  useEffect(() => {
+    const completeMicrosoftSignIn = async () => {
+      try {
+        const msCode = await AsyncStorage.getItem('@ms_auth_code');
+        const msVerifier = await AsyncStorage.getItem('@ms_code_verifier');
+        if (!msCode || !msVerifier) return;
+
+        // Clear stored values immediately
+        await AsyncStorage.multiRemove(['@ms_auth_code', '@ms_code_verifier']);
+
+        setIsSubmitting(true);
+
+        const clientId = microsoftAuthConfig?.clientId;
+        if (!clientId) return;
+
+        const tokenResponse = await AuthSession.exchangeCodeAsync(
+          {
+            clientId,
+            code: msCode,
+            redirectUri: msRedirectUri,
+            extraParams: { code_verifier: msVerifier },
+          },
+          microsoftDiscovery
+        );
+
+        if (!tokenResponse.accessToken) {
+          setError('No access token received from Microsoft.');
+          return;
+        }
+
+        const apiUrl = process.env.EXPO_PUBLIC_API_URL;
+
+        const resp = await fetch(`${apiUrl}/api/auth/microsoft`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accessToken: tokenResponse.accessToken }),
+        });
+
+        const data = await resp.json();
+
+        if (!resp.ok) {
+          setError(data.error || 'Microsoft sign in failed.');
+          return;
+        }
+
+        await signInWithCustomToken(auth, data.customToken);
+        onLogin();
+      } catch (err: any) {
+        setError(err.message || 'Unable to sign in with Microsoft.');
+      } finally {
+        setIsSubmitting(false);
+      }
+    };
+
+    completeMicrosoftSignIn();
+  }, []);
+
+  const handleMicrosoftSignIn = async () => {
+    setError(null);
+    setIsSubmitting(true);
+
+    try {
+      const clientId = microsoftAuthConfig?.clientId;
+      if (!clientId) {
+        setError('Microsoft sign in is not configured.');
+        return;
+      }
+
+      const request = new AuthSession.AuthRequest({
+        clientId,
+        scopes: ['openid', 'profile', 'email', 'User.Read'],
+        redirectUri: msRedirectUri,
+        usePKCE: true,
+        responseType: AuthSession.ResponseType.Code,
+        extraParams: { prompt: 'select_account' },
+      });
+
+      const authUrl = await request.makeAuthUrlAsync(microsoftDiscovery);
+
+      // Store the PKCE verifier so we can use it after redirect
+      await AsyncStorage.setItem('@ms_code_verifier', request.codeVerifier!);
+
+      const { Linking } = require('react-native');
+      await Linking.openURL(authUrl);
+    } catch (err: any) {
+      setError(err.message || 'Unable to sign in with Microsoft. Please try again.');
+      setIsSubmitting(false);
+    }
   };
 
   const openForgotPasswordModal = () => {
@@ -296,7 +402,8 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
         {/* Microsoft Button */}
         <TouchableOpacity
           style={styles.socialButton}
-          onPress={() => handleSocialLogin('Microsoft')}
+          onPress={handleMicrosoftSignIn}
+          disabled={isSubmitting || !microsoftDiscovery}
         >
           <Svg width={20} height={20} viewBox="0 0 24 24">
             <Rect fill="#f25022" x="1" y="1" width="10" height="10" />
