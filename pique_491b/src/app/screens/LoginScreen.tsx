@@ -1,11 +1,11 @@
 import { auth } from '@/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { GoogleAuthProvider, signInWithCredential, signInWithEmailAndPassword } from 'firebase/auth';
+import { GoogleAuthProvider, sendPasswordResetEmail, signInWithCredential, signInWithEmailAndPassword } from 'firebase/auth';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import Constants from 'expo-constants';
-import { Check, Eye, EyeOff, Lock, Mail } from 'lucide-react-native';
+import { Check, Eye, EyeOff, Lock, Mail, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { Dimensions, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Dimensions, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Rect } from 'react-native-svg';
 
@@ -33,6 +33,10 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rememberMe, setRememberMe] = useState(false);
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
+  const [forgotPasswordMessage, setForgotPasswordMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
   const insets = useSafeAreaInsets();
 
   // Configure Google Sign-In once on mount
@@ -139,6 +143,36 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
     onLogin();
   };
 
+  const openForgotPasswordModal = () => {
+    setForgotPasswordEmail(email.trim());
+    setForgotPasswordMessage(null);
+    setShowForgotPasswordModal(true);
+  };
+
+  const closeForgotPasswordModal = () => {
+    setShowForgotPasswordModal(false);
+    setForgotPasswordMessage(null);
+    setForgotPasswordLoading(false);
+  };
+
+  const handleSendPasswordReset = async () => {
+    const emailToUse = forgotPasswordEmail.trim();
+    if (!emailToUse) {
+      setForgotPasswordMessage({ type: 'error', text: 'Please enter your email.' });
+      return;
+    }
+    setForgotPasswordMessage(null);
+    setForgotPasswordLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, emailToUse);
+      setForgotPasswordMessage({ type: 'success', text: 'Sent an email.' });
+    } catch (err: any) {
+      setForgotPasswordMessage({ type: 'error', text: 'Something went wrong. Please try again.' });
+    } finally {
+      setForgotPasswordLoading(false);
+    }
+  };
+
   return (
     <ScrollView contentContainerStyle={styles.scrollContainer}>
       {/* Header with Logo */}
@@ -210,7 +244,7 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
             <Text style={styles.rememberMeText}>Remember Me</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity>
+          <TouchableOpacity onPress={openForgotPasswordModal}>
             <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
           </TouchableOpacity>
         </View>
@@ -282,6 +316,53 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
         </View>
 
       </View>
+
+      {/* Forgot Password Modal */}
+      <Modal visible={showForgotPasswordModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Reset Password</Text>
+              <TouchableOpacity onPress={closeForgotPasswordModal} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <X size={20} color="#6b7280" />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalSubtitle}>
+              Enter your email and we'll send you a link to reset your password.
+            </Text>
+            <Text style={styles.label}>Email</Text>
+            <View style={styles.inputWrapper}>
+              <Mail size={20} color="#9ca3af" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                value={forgotPasswordEmail}
+                onChangeText={(t) => { setForgotPasswordEmail(t); setForgotPasswordMessage(null); }}
+                placeholder="Enter your email"
+                placeholderTextColor="#9ca3af"
+                autoCapitalize="none"
+                keyboardType="email-address"
+                editable={!forgotPasswordLoading}
+              />
+            </View>
+            {forgotPasswordMessage && (
+              <Text style={forgotPasswordMessage.type === 'success' ? styles.successMessage : styles.errorMessage}>
+                {forgotPasswordMessage.text}
+              </Text>
+            )}
+            <TouchableOpacity
+              style={[styles.modalButton, forgotPasswordLoading && styles.modalButtonDisabled]}
+              onPress={handleSendPasswordReset}
+              disabled={forgotPasswordLoading}
+            >
+              {forgotPasswordLoading ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <Text style={styles.modalButtonText}>Send Reset Email</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -444,6 +525,57 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#0ea5e9',
     fontWeight: '600',
+  },
+  // Forgot Password Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  modalContent: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 360,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#6b7280',
+    marginBottom: 16,
+  },
+  modalButton: {
+    backgroundColor: '#0ea5e9',
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  modalButtonDisabled: {
+    opacity: 0.7,
+  },
+  modalButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  successMessage: {
+    marginTop: 8,
+    fontSize: 13,
+    color: '#059669',
   },
 });
 
