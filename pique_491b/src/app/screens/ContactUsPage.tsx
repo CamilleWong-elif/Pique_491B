@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { View, TextInput, TouchableOpacity, Text, StyleSheet, SafeAreaView, Platform, StatusBar } from 'react-native';
+import { View, TextInput, TouchableOpacity, Text, StyleSheet, SafeAreaView, Platform, StatusBar, Alert } from 'react-native';
 import { ArrowLeft } from 'lucide-react-native';
+import { apiSendContactMessage } from '@/api';
 
 type Props = {
     onNavigate?: (page: string) => void;
@@ -11,18 +12,37 @@ export default function ContactUsPage({ onNavigate }: Props) {
     const [email, setEmail] = useState('');
     const [subject, setSubject] = useState('');
     const [message, setMessage] = useState('');
+    const [isSending, setIsSending] = useState(false);
     const topPad = Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0;
 
-    const handleSend = () => {
-        if (name.trim() && email.trim() && subject.trim() && message.trim()) {
-            console.log('Sending:', { name, email, subject, message });
+    const handleSend = async () => {
+        if (!name.trim() || !email.trim() || !subject.trim() || !message.trim()) {
+            Alert.alert('Missing info', 'Please fill in all fields.');
+            return;
+        }
+
+        if (isSending) {
+            return;
+        }
+
+        try {
+            setIsSending(true);
+            await apiSendContactMessage({
+                name: name.trim(),
+                email: email.trim(),
+                subject: subject.trim(),
+                message: message.trim(),
+            });
+
             setName('');
             setEmail('');
             setSubject('');
             setMessage('');
-            alert('Message sent successfully!');
-        } else {
-            alert('Please fill in all fields');
+            Alert.alert('Message sent', 'Thanks for contacting us. We will get back to you soon.');
+        } catch (err: any) {
+            Alert.alert('Send failed', err?.message || 'We could not send your message right now.');
+        } finally {
+            setIsSending(false);
         }
     };
 
@@ -78,8 +98,8 @@ export default function ContactUsPage({ onNavigate }: Props) {
                     textAlignVertical="top"
                 />
 
-                <TouchableOpacity style={styles.sendButton} onPress={handleSend}>
-                    <Text style={styles.sendButtonText}>Send</Text>
+                <TouchableOpacity style={[styles.sendButton, isSending && styles.sendButtonDisabled]} onPress={handleSend} disabled={isSending}>
+                    <Text style={styles.sendButtonText}>{isSending ? 'Sending...' : 'Send'}</Text>
                 </TouchableOpacity>
             </View>
         </SafeAreaView>
@@ -154,6 +174,9 @@ const styles = StyleSheet.create({
         padding: 15,
         borderRadius: 8,
         alignItems: 'center',
+    },
+    sendButtonDisabled: {
+        opacity: 0.65,
     },
     sendButtonText: {
         color: '#fff',
