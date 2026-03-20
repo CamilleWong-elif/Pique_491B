@@ -143,14 +143,18 @@ export function ProfilePage({
           .map(mapToEvent);
         setLikedEvents(liked);
 
-        // Fetch booked events
-        const bookings = await apiGetBookings();
-        const bookedEventIds = [...new Set(bookings.map((b: any) => b.eventId))];
-        const bookedIdSet = new Set(bookedEventIds);
-        const booked = allEvents
-          .filter((e: any) => bookedIdSet.has(e.id))
-          .map(mapToEvent);
-        setBookedEvents(booked);
+        // Fetch booked events (non-blocking — profile still works if this fails)
+        try {
+          const bookings = await apiGetBookings();
+          const bookedEventIds = [...new Set(bookings.map((b: any) => b.eventId))];
+          const bookedIdSet = new Set(bookedEventIds);
+          const booked = allEvents
+            .filter((e: any) => bookedIdSet.has(e.id))
+            .map(mapToEvent);
+          setBookedEvents(booked);
+        } catch (bookingErr) {
+          console.warn('Could not fetch bookings:', bookingErr);
+        }
       } catch (err) {
         console.error('Error fetching profile events:', err);
       } finally {

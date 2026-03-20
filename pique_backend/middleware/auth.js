@@ -1,4 +1,4 @@
-const { admin } = require("../config/firebase");
+const { admin } = require("../src/config/firebase");
 
 /**
  * Verifies the Firebase ID token sent from the React Native client.
