@@ -1,4 +1,5 @@
 import { auth } from '@/firebase';
+import { apiEnsureProfile } from '@/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GoogleAuthProvider, sendPasswordResetEmail, signInWithCredential, signInWithCustomToken, signInWithEmailAndPassword } from 'firebase/auth';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
@@ -135,6 +136,7 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
       // Use the token to sign into Firebase
       const credential = GoogleAuthProvider.credential(idToken);
       await signInWithCredential(auth, credential);
+      await apiEnsureProfile();
       onLogin();
     } catch (err: any) {
       if (err.code === statusCodes.SIGN_IN_CANCELLED) {
@@ -205,6 +207,7 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
         }
 
         await signInWithCustomToken(auth, data.customToken);
+        await apiEnsureProfile();
         onLogin();
       } catch (err: any) {
         setError(err.message || 'Unable to sign in with Microsoft.');
