@@ -1,7 +1,7 @@
+import { apiFollowUser, apiSearchUsers, apiUnfollowUser } from '@/api';
 import { NavigationBar } from '@/components/NavigationBar';
 import { useAuth } from '@/context/AuthContext';
-import { auth, db } from '@/firebase';
-import { arrayRemove, arrayUnion, collection, endAt, getDocs, orderBy, query, startAt, updateDoc, doc } from 'firebase/firestore';
+import { auth } from '@/firebase';
 import { Globe, Info, Search, Trophy, Users, X } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -39,16 +39,16 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
 
   const handleFollowToggle = async (targetUid: string) => {
     if (!currentUid || currentUid === targetUid) return;
-    const myRef = doc(db, 'users', currentUid);
-    const theirRef = doc(db, 'users', targetUid);
-    if (followingSet.has(targetUid)) {
-      await updateDoc(myRef, { followingCount: arrayRemove(targetUid) });
-      await updateDoc(theirRef, { followerCount: arrayRemove(currentUid) });
-      setFollowingSet(prev => { const s = new Set(prev); s.delete(targetUid); return s; });
-    } else {
-      await updateDoc(myRef, { followingCount: arrayUnion(targetUid) });
-      await updateDoc(theirRef, { followerCount: arrayUnion(currentUid) });
-      setFollowingSet(prev => new Set([...prev, targetUid]));
+    try {
+      if (followingSet.has(targetUid)) {
+        await apiUnfollowUser(targetUid);
+        setFollowingSet(prev => { const s = new Set(prev); s.delete(targetUid); return s; });
+      } else {
+        await apiFollowUser(targetUid);
+        setFollowingSet(prev => new Set([...prev, targetUid]));
+      }
+    } catch (err) {
+      console.error('Follow toggle error:', err);
     }
   };
 
@@ -60,14 +60,8 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
     debounceRef.current = setTimeout(async () => {
       setSearching(true);
       try {
-        const q1 = query(
-          collection(db, 'users'),
-          orderBy('username'),
-          startAt(q),
-          endAt(q + '\uf8ff')
-        );
-        const snap = await getDocs(q1);
-        setSearchResults(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const results = await apiSearchUsers(q);
+        setSearchResults(results);
       } catch (e) {
         console.error('User search error:', e);
       } finally {
