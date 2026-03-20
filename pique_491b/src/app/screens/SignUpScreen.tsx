@@ -1,5 +1,5 @@
-import { auth, db } from '@/firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { auth } from '@/firebase';
+import { apiRegister } from '@/api';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { Calendar, Check, Eye, EyeOff, Lock, Mail, User, X } from 'lucide-react-native';
@@ -120,18 +120,10 @@ export function SignUpScreen({ onSignUp, onNavigateToLogin }: SignUpScreenProps)
         await updateProfile(userCredential.user, {
           displayName: formData.fullName,
         });
-        await setDoc(doc(db, 'users', userCredential.user.uid), {
-          displayName: formData.fullName,
-          email: formData.email,
-          username: formData.fullName.toLowerCase().replace(/\s+/g, '_'),
-          bio: '',
-          avatar: null,
-          dateOfBirth: formData.dateOfBirth ? formData.dateOfBirth.toISOString().split('T')[0] : null,
-          privateAccount: false,
-          points: 0,
-          followerCount: [],
-          followingCount: [],
-          createdAt: new Date().toISOString(),
+        await apiRegister({
+          fullName: formData.fullName,
+          username: formData.username,
+          dateOfBirth: dateOfBirth.toISOString().split('T')[0],
         });
         console.log('Firebase user created:', userCredential.user);
         onSignUp();
