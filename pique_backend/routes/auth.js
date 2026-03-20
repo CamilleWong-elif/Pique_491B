@@ -119,4 +119,48 @@ router.post("/register", authenticate, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/auth/ensure-profile — Create user doc if it doesn't exist yet
+//
+// Called after Google (or any OAuth) sign-in. If the user already has a
+// Firestore doc, this is a no-op. Otherwise it creates one using the
+// Firebase Auth profile data (displayName, email, photoURL).
+// ---------------------------------------------------------------------------
+router.post("/ensure-profile", authenticate, async (req, res) => {
+  try {
+    const userRef = db.collection("users").doc(req.user.uid);
+    const userDoc = await userRef.get();
+
+    if (userDoc.exists) {
+      return res.json({ id: req.user.uid, ...userDoc.data(), created: false });
+    }
+
+    // Pull info from Firebase Auth
+    const authUser = await admin.auth().getUser(req.user.uid);
+
+    const userData = {
+      displayName: authUser.displayName || "",
+      username: "",
+      email: authUser.email || "",
+      bio: "",
+      avatar: null,
+      photoURL: authUser.photoURL || null,
+      points: 0,
+      followerCount: [],
+      followingCount: [],
+      likedEvents: [],
+      lat: 0,
+      lng: 0,
+      createdAt: new Date().toISOString(),
+    };
+
+    await userRef.set(userData);
+
+    return res.status(201).json({ id: req.user.uid, ...userData, created: true });
+  } catch (err) {
+    console.error("POST /api/auth/ensure-profile error:", err);
+    return res.status(500).json({ error: "Failed to ensure user profile" });
+  }
+});
+
 module.exports = router;
