@@ -1,5 +1,5 @@
 const express = require("express");
-const { db } = require("../config/firebase");
+const { db } = require("../src/config/firebase");
 const { authenticate } = require("../middleware/auth");
 const { FieldValue } = require("firebase-admin/firestore");
 
@@ -76,13 +76,11 @@ router.get("/", authenticate, async (req, res) => {
     const snapshot = await db
       .collection("bookings")
       .where("userId", "==", req.user.uid)
-      .orderBy("createdAt", "desc")
       .get();
 
-    const bookings = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    const bookings = snapshot.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
 
     return res.json(bookings);
   } catch (err) {
