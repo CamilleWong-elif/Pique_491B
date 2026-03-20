@@ -15,8 +15,8 @@ import {
 } from "react-native";
 import { ArrowLeft, Star, Upload, X } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
-import { addDoc, collection } from 'firebase/firestore';
-import { auth, db } from '@/firebase';
+import { auth } from '@/firebase';
+import { apiPostReview } from '@/api';
 
 // ----- Types (adjust to your app) -----
 export type Event = {
@@ -105,13 +105,10 @@ export function LeaveReviewScreen({ event, onBack, onReviewPosted }: Props) {
       Alert.alert("Missing review", "Please add a short review before posting.");
       return;
     }
-    await addDoc(collection(db, "reviews"), {
-      event: event.id,
-      author: auth.currentUser.uid,
+    await apiPostReview({
+      eventId: event.id,
       rating,
       comment: reviewText,
-      createdAt: new Date(),
-      updatedAt: new Date(),
     });
     onReviewPosted();
   };
