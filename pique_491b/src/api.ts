@@ -5,7 +5,13 @@ const DEFAULT_API_BASE = Platform.OS === 'android'
   ? 'http://10.0.2.2:3000'
   : 'http://localhost:3000';
 
-const API_BASE = (process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_BASE).replace(/\/+$/, '');
+function normalizeApiBase(rawBase: string): string {
+  return rawBase
+    .replace(/\/+$/, '')
+    .replace(/\/api$/i, '');
+}
+
+const API_BASE = normalizeApiBase(process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_BASE);
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const user = auth.currentUser;
