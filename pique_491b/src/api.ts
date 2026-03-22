@@ -55,6 +55,9 @@ async function apiPublicFetch<T = any>(path: string, options?: RequestInit): Pro
 export const apiRegister = (data: { fullName: string; username: string; dateOfBirth?: string }) =>
   apiFetch('/api/auth/register', { method: 'POST', body: JSON.stringify(data) });
 
+export const apiEnsureProfile = () =>
+  apiFetch('/api/auth/ensure-profile', { method: 'POST' });
+
 // ── Events ──
 export const apiGetEvents = (params?: { category?: string; search?: string }) => {
   const qs = new URLSearchParams();
