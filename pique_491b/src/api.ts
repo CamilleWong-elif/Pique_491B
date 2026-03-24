@@ -141,6 +141,3 @@ export const apiSendMessage = (conversationId: string, text: string) =>
 export const apiStartConversation = (recipientId: string) =>
   apiFetch('/api/messages/conversations/new', { method: 'POST', body: JSON.stringify({ recipientId }) });
 
-// ── Contact ──
-export const apiSendContactMessage = (data: { name: string; email: string; subject: string; message: string }) =>
-  apiPublicFetch('/api/contact', { method: 'POST', body: JSON.stringify(data) });
