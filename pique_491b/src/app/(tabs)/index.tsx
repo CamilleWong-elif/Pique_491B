@@ -111,7 +111,6 @@ export default function App() {
             onOpenMessages={() => handleNavigate('messages')}
           />
         )}
-        {/* Explore page upon action */}
         {!isLoading && isAuthenticated && currentPage === 'explore' && (
           <ExplorePage onNavigate={handleNavigate} />
         )}
