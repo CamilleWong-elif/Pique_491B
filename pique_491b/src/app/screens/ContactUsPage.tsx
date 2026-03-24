@@ -13,7 +13,6 @@ import {
     ScrollView,
 } from 'react-native';
 import { ArrowLeft, Mail, User, MessageSquare, Send } from 'lucide-react-native';
-import { apiSendContactMessage } from '@/api';
 
 type Props = {
     onNavigate?: (page: string) => void;
@@ -27,6 +26,21 @@ type ContactForm = {
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const WEB3FORMS_URL = 'https://api.web3forms.com/submit';
+const WEB3FORMS_ACCESS_KEY =
+    process.env.EXPO_PUBLIC_WEB3FORMS_ACCESS_KEY || process.env.EXPO_PUBLIC_WEB3_FORM_API_KEY;
+
+const DEFAULT_API_BASE = Platform.OS === 'android'
+    ? 'http://10.0.2.2:3000'
+    : 'http://localhost:3000';
+
+function normalizeApiBase(rawBase: string): string {
+    return rawBase
+        .replace(/\/+$/, '')
+        .replace(/\/api$/i, '');
+}
+
+const API_BASE = normalizeApiBase(process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_BASE);
 
 const INITIAL_FORM: ContactForm = {
     name: '',
@@ -43,6 +57,48 @@ function validateForm(form: ContactForm): string | null {
     if (!form.message.trim()) return 'Please enter a message.';
     if (form.message.trim().length < 10) return 'Your message is too short.';
     return null;
+}
+
+async function submitContactMessage(data: ContactForm) {
+    if (WEB3FORMS_ACCESS_KEY) {
+        const formData = new FormData();
+        formData.append('access_key', WEB3FORMS_ACCESS_KEY);
+        formData.append('name', data.name);
+        formData.append('email', data.email);
+        formData.append('subject', data.subject);
+        formData.append('message', data.message);
+
+        const web3Res = await fetch(WEB3FORMS_URL, {
+            method: 'POST',
+            body: formData,
+        });
+
+        const web3Body = await web3Res.json().catch(() => ({}));
+        if (web3Res.ok && web3Body?.success !== false) {
+            return web3Body;
+        }
+
+        const message = String(web3Body?.message || web3Body?.error || '').toLowerCase();
+        const methodNotAllowed = message.includes('method is not allowed');
+        if (!methodNotAllowed) {
+            throw new Error(web3Body?.message || web3Body?.error || `Contact request failed (${web3Res.status})`);
+        }
+    }
+
+    const apiRes = await fetch(`${API_BASE}/api/contact`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+    });
+
+    const apiBody = await apiRes.json().catch(() => ({}));
+    if (!apiRes.ok) {
+        throw new Error(apiBody?.error || apiBody?.message || `API error ${apiRes.status}`);
+    }
+
+    return apiBody;
 }
 
 export default function ContactUsPage({ onNavigate }: Props) {
@@ -67,7 +123,7 @@ export default function ContactUsPage({ onNavigate }: Props) {
 
         try {
             setIsSending(true);
-            await apiSendContactMessage({
+            await submitContactMessage({
                 name: form.name.trim(),
                 email: form.email.trim(),
                 subject: form.subject.trim(),
