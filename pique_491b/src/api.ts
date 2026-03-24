@@ -1,6 +1,17 @@
 import { auth } from '@/firebase';
+import { Platform } from 'react-native';
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+const DEFAULT_API_BASE = Platform.OS === 'android'
+  ? 'http://10.0.2.2:3000'
+  : 'http://localhost:3000';
+
+function normalizeApiBase(rawBase: string): string {
+  return rawBase
+    .replace(/\/+$/, '')
+    .replace(/\/api$/i, '');
+}
+
+const API_BASE = normalizeApiBase(process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_BASE);
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const user = auth.currentUser;
@@ -17,6 +28,21 @@ async function apiFetch<T = any>(path: string, options?: RequestInit): Promise<T
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: { ...headers, ...(options?.headers as Record<string, string>) },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `API error ${res.status}`);
+  }
+  return res.json();
+}
+
+async function apiPublicFetch<T = any>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options?.headers as Record<string, string>),
+    },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -114,3 +140,7 @@ export const apiSendMessage = (conversationId: string, text: string) =>
 
 export const apiStartConversation = (recipientId: string) =>
   apiFetch('/api/messages/conversations/new', { method: 'POST', body: JSON.stringify({ recipientId }) });
+
+// ── Contact ──
+export const apiSendContactMessage = (data: { name: string; email: string; subject: string; message: string }) =>
+  apiPublicFetch('/api/contact', { method: 'POST', body: JSON.stringify(data) });
