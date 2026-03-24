@@ -146,9 +146,19 @@ export function FriendProfileScreen({
     followingUids: [] as string[],
   });
 
+  const friendId = friendData.id || friendName;
+  const followButtonState = getFollowButtonState({
+    currentUid,
+    friendId,
+    friendFollowerIds: friendData.followerUids,
+    friendFollowingIds: friendData.followingUids,
+    myFollowerIds,
+    myFollowingIds,
+  });
+
 
   // true if the current user's UID is in the friend's followerCount array
-  const isFollowing = currentUid ? friendData.followerUids.includes(currentUid) : false;
+  const isFollowing = followButtonState.isFollowing;
 
   const handleFollowToggle = async () => {
     if (!currentUid || !followButtonState.canFollow) return;
@@ -337,13 +347,30 @@ export function FriendProfileScreen({
             <View style={styles.actionRow}>
               <TouchableOpacity
                 onPress={handleFollowToggle}
-                style={[styles.actionBtn, isFollowing ? styles.followingBtn : styles.followBtn]}
+                style={[
+                  styles.actionBtn,
+                  !followButtonState.canFollow
+                    ? styles.followDisabledBtn
+                    : isFollowing
+                      ? styles.followingBtn
+                      : styles.followBtn,
+                ]}
                 activeOpacity={0.9}
                 accessibilityRole="button"
                 accessibilityLabel={isFollowing ? "Unfollow" : "Follow"}
+                disabled={!followButtonState.canFollow}
               >
-                <Text style={[styles.actionText, isFollowing ? styles.followingText : styles.followText]}>
-                  {isFollowing ? "Following" : "Follow"}
+                <Text
+                  style={[
+                    styles.actionText,
+                    !followButtonState.canFollow
+                      ? styles.followDisabledText
+                      : isFollowing
+                        ? styles.followingText
+                        : styles.followText,
+                  ]}
+                >
+                  {followButtonState.label}
                 </Text>
               </TouchableOpacity>
 
@@ -677,6 +704,11 @@ const styles = StyleSheet.create({
 
   removeBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, backgroundColor: "#fee2e2" },
   removeBtnText: { color: "#dc2626", fontSize: 12, fontWeight: "800" },
+  userActionText: { fontSize: 12, fontWeight: "800" },
+  userActionDisabledText: { color: "#9CA3AF" },
+  userActionFollowingText: { color: "#374151" },
+  userActionFollowBackText: { color: "#2563EB" },
+  userActionFollowText: { color: "#059669" },
 
   userSep: { height: 1, backgroundColor: "#F3F4F6" },
 
