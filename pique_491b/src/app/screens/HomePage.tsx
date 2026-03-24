@@ -1,7 +1,7 @@
 import { EventCard } from '@/components/EventCard';
 import { NavigationBar } from '@/components/NavigationBar';
 import { NotificationsModal } from '@/components/NotificationsModal';
-import { SocialActivityCard } from '@/components/Placeholder';
+import { SocialActivityCard } from '@/components/SocialActivityCard';
 import { SearchOverlay } from '@/components/SearchOverlay';
 import { useAuth } from '@/context/AuthContext';
 import { apiGetEvents, apiToggleLike } from '@/api';
