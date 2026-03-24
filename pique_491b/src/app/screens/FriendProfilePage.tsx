@@ -14,20 +14,10 @@ import {
   FlatList,
   Modal,
   Pressable,
-  Platform,
-  StatusBar,
 } from "react-native";
-import { FileText, Heart, Calendar, X, ArrowLeft } from "lucide-react-native";
+import { FileText, Heart, Calendar, X } from "lucide-react-native";
 
-/**
- * Notes:
- * - This is a React Native conversion of your FriendProfilePage.
- * - I kept your navigation contract (onNavigate(page, eventId?, options?)).
- * - The "select" sorting UI is converted to simple inline toggle buttons for RN (no web <select>).
- *   If you want a dropdown, tell me if you're using Expo (ActionSheet) or a library (react-native-picker/picker).
- */
-
-// ---- Types (adjust to your app) ----
+// ---- Types ----
 export type Event = {
   id: string;
   name: string;
@@ -35,7 +25,6 @@ export type Event = {
   imageUrl?: string;
   city?: string;
   state?: string;
-  // any other fields your EventCard needs
 };
 
 type NavOptions = {
@@ -49,7 +38,7 @@ type UserRow = {
   name: string;
   username: string;
   bio: string;
-  avatar: string; // uri
+  avatar: string;
 };
 
 type Props = {
@@ -58,19 +47,14 @@ type Props = {
   onBack: () => void;
   onOpenMessages?: () => void;
   unreadMessageCount?: number;
-
-  // Pass these in OR replace with your imports
   mockEvents: Event[];
   getAvatarWithFallback: (name: string) => string;
-
   BottomNavigation: React.ComponentType<{
     currentPage: string;
     onNavigate: Props["onNavigate"];
     onOpenMessages: () => void;
     unreadMessageCount?: number;
   }>;
-
-  // Replace with your RN EventCard component
   EventCard: React.ComponentType<{
     event: Event;
     onPress: () => void;
@@ -147,6 +131,7 @@ export function FriendProfileScreen({
   const [likedSortOption, setLikedSortOption] = useState<SortKey>("latest");
   const [bookedSortOption, setBookedSortOption] = useState<SortKey>("latest");
   const [showFollowModal, setShowFollowModal] = useState<"followers" | "following" | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const currentUid = auth.currentUser?.uid ?? "";
   const [myFollowingIds, setMyFollowingIds] = useState<string[]>([]);
   const [myFollowerIds, setMyFollowerIds] = useState<string[]>([]);
@@ -154,31 +139,16 @@ export function FriendProfileScreen({
   const [friendData, setFriendData] = useState({
     id: friendName,
     name: "",
+    username: "",
     bio: "",
     avatar: getAvatarWithFallback(friendName),
     followerUids: [] as string[],
     followingUids: [] as string[],
   });
 
-  useEffect(() => {
-    setMyFollowingIds(Array.isArray(profile?.followingCount) ? profile.followingCount : []);
-    setMyFollowerIds(Array.isArray(profile?.followerCount) ? profile.followerCount : []);
-  }, [profile?.followingCount, profile?.followerCount]);
 
-  const friendId = friendData.id || friendName;
-
-  const followButtonState = useMemo(
-    () =>
-      getFollowButtonState({
-        currentUid,
-        friendId,
-        friendFollowerIds: friendData.followerUids,
-        friendFollowingIds: friendData.followingUids,
-        myFollowerIds,
-        myFollowingIds,
-      }),
-    [currentUid, friendId, friendData.followerUids, friendData.followingUids, myFollowerIds, myFollowingIds]
-  );
+  // true if the current user's UID is in the friend's followerCount array
+  const isFollowing = currentUid ? friendData.followerUids.includes(currentUid) : false;
 
   const handleFollowToggle = async () => {
     if (!currentUid || !followButtonState.canFollow) return;
@@ -200,12 +170,10 @@ export function FriendProfileScreen({
     }
   };
 
-
   useEffect(() => {
     const fetchFriendData = async () => {
       try {
         const userData = await apiGetUser(friendName);
-
         const bios = [
           "Event enthusiast | Foodie | Explorer",
           "Adventure seeker | Coffee lover",
@@ -219,10 +187,10 @@ export function FriendProfileScreen({
           "Gamer | Tech geek",
         ];
         const hash = friendName.split("").reduce((acc: number, ch: string) => acc + ch.charCodeAt(0), 0);
-
         setFriendData({
           id: userData?.id || friendName,
           name: userData?.displayName || "",
+          username: userData?.username || "",
           bio: userData?.bio || bios[hash % bios.length],
           avatar: userData?.avatar || userData?.photoURL || getAvatarWithFallback(friendName),
           followerUids: userData?.followerCount ?? [],
@@ -232,7 +200,6 @@ export function FriendProfileScreen({
         console.error("Error fetching friend data:", error);
       }
     };
-
     fetchFriendData();
   }, [friendName, getAvatarWithFallback]);
 
@@ -265,7 +232,6 @@ export function FriendProfileScreen({
       .catch(() => setMockFollowing([]));
   }, [friendData.followingUids.join(","), friendId]);
 
-  // Mock events (same as your web sample)
   const postedEventsRaw = useMemo(() => {
     const safe = (idx: number) => mockEvents[idx] || mockEvents[0];
     return [
@@ -310,18 +276,9 @@ export function FriendProfileScreen({
     }
   };
 
-  const postedEvents = useMemo(
-    () => sortEvents(postedEventsRaw, sortOption),
-    [postedEventsRaw, sortOption]
-  );
-  const likedEvents = useMemo(
-    () => sortEvents(likedEventsRaw, likedSortOption),
-    [likedEventsRaw, likedSortOption]
-  );
-  const bookedEvents = useMemo(
-    () => sortEvents(bookedEventsRaw, bookedSortOption),
-    [bookedEventsRaw, bookedSortOption]
-  );
+  const postedEvents = useMemo(() => sortEvents(postedEventsRaw, sortOption), [postedEventsRaw, sortOption]);
+  const likedEvents = useMemo(() => sortEvents(likedEventsRaw, likedSortOption), [likedEventsRaw, likedSortOption]);
+  const bookedEvents = useMemo(() => sortEvents(bookedEventsRaw, bookedSortOption), [bookedEventsRaw, bookedSortOption]);
 
   const listData = activeTab === "posted" ? postedEvents : activeTab === "liked" ? likedEvents : bookedEvents;
   const currentSort = activeTab === "posted" ? sortOption : activeTab === "liked" ? likedSortOption : bookedSortOption;
@@ -332,24 +289,9 @@ export function FriendProfileScreen({
     else setBookedSortOption(v);
   };
 
-  const topPad = Platform.OS === "android" ? (StatusBar.currentHeight || 0) : 0;
 
   return (
     <SafeAreaView style={styles.root}>
-      {/* Header Background */}
-      <View style={[styles.headerBg, { paddingTop: 12 + topPad }]} />
-
-      {/* Back Button */}
-      <TouchableOpacity
-        onPress={onBack}
-        style={[styles.backBtn, { top: 12 + topPad }]}
-        accessibilityRole="button"
-        accessibilityLabel="Back"
-      >
-        <ArrowLeft size={20} color="#374151" />
-      </TouchableOpacity>
-
-      {/* Main content (FlatList so grid scrolls nicely) */}
       <FlatList
         data={listData}
         keyExtractor={(item: any) => item.id}
@@ -359,70 +301,49 @@ export function FriendProfileScreen({
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <View>
-            {/* Profile */}
-            <View style={styles.profileWrap}>
-              <View style={styles.avatarRing}>
-                <Image source={{ uri: friendData.avatar }} style={styles.avatar} />
-              </View>
+            {/* Header Background — same as ProfilePage */}
+            <View style={styles.headerBg} />
 
-              <View style={styles.profileRight}>
-                <Text style={styles.name}>{friendData.name}</Text>
-                <Text style={styles.bio}>{friendData.bio}</Text>
+            {/* Profile Info */}
+            <View style={styles.profileSection}>
+              <View style={styles.profileRow}>
+                <TouchableOpacity onPress={() => setPreviewImage(friendData.avatar)} activeOpacity={0.9}>
+                  <Image source={{ uri: friendData.avatar }} style={styles.avatar} />
+                </TouchableOpacity>
 
-                <View style={styles.statsRow}>
-                  <TouchableOpacity
-                    onPress={() => setShowFollowModal("followers")}
-                    accessibilityRole="button"
-                    accessibilityLabel="View followers"
-                  >
-                    <Text style={styles.stat}>
-                      <Text style={styles.statNum}>{mockFollowers.length}</Text>
-                      <Text style={styles.statLabel}> Followers</Text>
-                    </Text>
-                  </TouchableOpacity>
+                <View style={styles.profileInfo}>
+                  <Text style={styles.userName}>{friendData.name}</Text>
+                  {friendData.username ? <Text style={styles.usernameText}>@{friendData.username}</Text> : null}
+                  <Text style={styles.bio}>{friendData.bio}</Text>
 
-                  <TouchableOpacity
-                    onPress={() => setShowFollowModal("following")}
-                    accessibilityRole="button"
-                    accessibilityLabel="View following"
-                  >
-                    <Text style={styles.stat}>
-                      <Text style={styles.statNum}>{mockFollowing.length}</Text>
-                      <Text style={styles.statLabel}> Following</Text>
-                    </Text>
-                  </TouchableOpacity>
+                  <View style={styles.statsRow}>
+                    <TouchableOpacity onPress={() => setShowFollowModal("followers")}>
+                      <Text style={styles.statText}>
+                        <Text style={styles.statNumber}>{mockFollowers.length}</Text>
+                        {" "}Followers
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setShowFollowModal("following")}>
+                      <Text style={styles.statText}>
+                        <Text style={styles.statNumber}>{mockFollowing.length}</Text>
+                        {" "}Following
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
-            </View>
 
             {/* Follow / Message */}
             <View style={styles.actionRow}>
               <TouchableOpacity
                 onPress={handleFollowToggle}
-                disabled={!followButtonState.canFollow}
-                style={[
-                  styles.actionBtn,
-                  !followButtonState.canFollow
-                    ? styles.followDisabledBtn
-                    : followButtonState.isFollowing
-                      ? styles.followingBtn
-                      : styles.followBtn,
-                ]}
+                style={[styles.actionBtn, isFollowing ? styles.followingBtn : styles.followBtn]}
                 activeOpacity={0.9}
                 accessibilityRole="button"
-                accessibilityLabel={followButtonState.label}
+                accessibilityLabel={isFollowing ? "Unfollow" : "Follow"}
               >
-                <Text
-                  style={[
-                    styles.actionText,
-                    !followButtonState.canFollow
-                      ? styles.followDisabledText
-                      : followButtonState.isFollowing
-                        ? styles.followingText
-                        : styles.followText,
-                  ]}
-                >
-                  {followButtonState.label}
+                <Text style={[styles.actionText, isFollowing ? styles.followingText : styles.followText]}>
+                  {isFollowing ? "Following" : "Follow"}
                 </Text>
               </TouchableOpacity>
 
@@ -437,68 +358,55 @@ export function FriendProfileScreen({
               </TouchableOpacity>
             </View>
 
-            {/* Tab Buttons */}
-            <View style={styles.tabsRow}>
-              <TouchableOpacity
-                onPress={() => setActiveTab("posted")}
-                style={[styles.tabBtn, activeTab === "posted" ? styles.tabOn : styles.tabOff]}
-                accessibilityRole="button"
-                accessibilityLabel="Posted events"
-              >
-                <FileText size={20} color="#fff" />
-              </TouchableOpacity>
+              {/* Tab Icons */}
+              <View style={styles.tabIconRow}>
+                <TouchableOpacity
+                  style={[styles.tabIcon, activeTab === "posted" && styles.tabIconActive]}
+                  onPress={() => setActiveTab("posted")}
+                >
+                  <FileText size={20} color="#ffffff" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.tabIcon, activeTab === "liked" && styles.tabIconActive]}
+                  onPress={() => setActiveTab("liked")}
+                >
+                  <Heart size={20} color="#ffffff" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.tabIcon, activeTab === "booked" && styles.tabIconActive]}
+                  onPress={() => setActiveTab("booked")}
+                >
+                  <Calendar size={20} color="#ffffff" />
+                </TouchableOpacity>
+              </View>
 
-              <TouchableOpacity
-                onPress={() => setActiveTab("liked")}
-                style={[styles.tabBtn, activeTab === "liked" ? styles.tabOn : styles.tabOff]}
-                accessibilityRole="button"
-                accessibilityLabel="Liked events"
-              >
-                <Heart size={20} color="#fff" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={() => setActiveTab("booked")}
-                style={[styles.tabBtn, activeTab === "booked" ? styles.tabOn : styles.tabOff]}
-                accessibilityRole="button"
-                accessibilityLabel="Booked events"
-              >
-                <Calendar size={20} color="#fff" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Section Header + "Sort" */}
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>
-                {activeTab === "posted" ? "Events Posted" : activeTab === "liked" ? "Liked Events" : "Booked Events"}
-              </Text>
-
-              {/* RN replacement for <select>: quick chips */}
-              <View style={styles.sortChips}>
-                {(
-                  [
+              {/* Content Header + Sort */}
+              <View style={styles.contentHeader}>
+                <Text style={styles.contentTitle}>
+                  {activeTab === "posted" ? "Events Posted" : activeTab === "liked" ? "Liked/Saved Events" : "Booked Events"}
+                </Text>
+                <View style={styles.sortChips}>
+                  {([
                     ["latest", "Latest"],
                     ["oldest", "Oldest"],
                     ["name-asc", "A–Z"],
                     ["name-desc", "Z–A"],
                     ["rating", "Rating"],
-                  ] as [SortKey, string][]
-                ).map(([key, label]) => {
-                  const on = currentSort === key;
-                  return (
-                    <TouchableOpacity
-                      key={key}
-                      onPress={() => setCurrentSort(key)}
-                      style={[styles.chip, on ? styles.chipOn : styles.chipOff]}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Sort by ${label}`}
-                    >
-                      <Text style={[styles.chipText, on ? styles.chipTextOn : styles.chipTextOff]}>
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                  ] as [SortKey, string][]).map(([key, label]) => {
+                    const on = currentSort === key;
+                    return (
+                      <TouchableOpacity
+                        key={key}
+                        onPress={() => setCurrentSort(key)}
+                        style={[styles.chip, on ? styles.chipOn : styles.chipOff]}
+                      >
+                        <Text style={[styles.chipText, on ? styles.chipTextOn : styles.chipTextOff]}>
+                          {label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
               </View>
             </View>
           </View>
@@ -507,20 +415,13 @@ export function FriendProfileScreen({
           <View style={styles.cardCell}>
             <EventCard
               event={item}
-              onPress={() =>
-                onNavigate("event", item.id, {
-                  showPrice: activeTab === "booked",
-                  activeTab,
-                  friendName: friendData.name,
-                })
-              }
+              onPress={() => onNavigate("event", item.id, { showPrice: activeTab === "booked", activeTab, friendName: friendData.name })}
             />
           </View>
         )}
         ListFooterComponent={<View style={{ height: 120 }} />}
       />
 
-      {/* Bottom Nav */}
       <BottomNavigation
         currentPage="profile"
         onNavigate={onNavigate}
@@ -532,21 +433,14 @@ export function FriendProfileScreen({
       <Modal visible={!!showFollowModal} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setShowFollowModal(null)}>
           <Pressable style={styles.modalCard} onPress={() => {}}>
-            {/* Header */}
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
                 {showFollowModal === "followers" ? "Followers" : "Following"}
               </Text>
-              <TouchableOpacity
-                onPress={() => setShowFollowModal(null)}
-                accessibilityRole="button"
-                accessibilityLabel="Close"
-              >
+              <TouchableOpacity onPress={() => setShowFollowModal(null)}>
                 <X size={24} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
-
-            {/* List */}
             <FlatList
               data={
                 showFollowModal === "followers"
@@ -558,40 +452,21 @@ export function FriendProfileScreen({
                 <View style={styles.userRow}>
                   <TouchableOpacity
                     style={styles.userAvatarWrap}
-                    onPress={() => {
-                      setShowFollowModal(null);
-                      onNavigate("friendProfile", undefined, { friendName: user.id });
-                    }}
+                    onPress={() => { setShowFollowModal(null); onNavigate("friendProfile", undefined, { friendName: user.id }); }}
                   >
-                    <Image source={{ uri: user.avatar }} style={styles.userAvatar} />
+                    <Image source={{ uri: user.avatar || getAvatarWithFallback(user.name || user.id) }} style={styles.userAvatar} />
                   </TouchableOpacity>
-
                   <TouchableOpacity
                     style={styles.userInfo}
-                    onPress={() => {
-                      setShowFollowModal(null);
-                      onNavigate("friendProfile", undefined, { friendName: user.id });
-                    }}
+                    onPress={() => { setShowFollowModal(null); onNavigate("friendProfile", undefined, { friendName: user.id }); }}
                   >
-                    <Text style={styles.userName} numberOfLines={1}>
-                      {user.name}
-                    </Text>
-                    <Text style={styles.userMeta} numberOfLines={1}>
-                      {user.username}
-                    </Text>
+                    <Text style={styles.userNameText} numberOfLines={1}>{user.name}</Text>
+                    <Text style={styles.userMeta} numberOfLines={1}>{user.username}</Text>
                   </TouchableOpacity>
-
                   <TouchableOpacity
-                    style={[
-                      styles.userActionBtn,
-                      user.id === currentUid
-                        ? styles.userActionDisabledBtn
-                        : myFollowingIds.includes(user.id)
-                          ? styles.userActionFollowingBtn
-                          : styles.userActionFollowBtn,
-                    ]}
+                    style={styles.removeBtn}
                     accessibilityRole="button"
-                    accessibilityLabel="Toggle follow"
+                    accessibilityLabel="Remove"
                     onPress={async () => {
                       const rowFollowState = getFollowButtonState({
                         currentUid,
@@ -650,14 +525,19 @@ export function FriendProfileScreen({
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Full-screen image preview */}
+      <Modal visible={!!previewImage} transparent animationType="fade" onRequestClose={() => setPreviewImage(null)}>
+        <Pressable style={styles.previewOverlay} onPress={() => setPreviewImage(null)}>
+          <Image source={{ uri: previewImage ?? "" }} style={styles.previewImage} resizeMode="contain" />
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#fff" },
-
-  headerBg: { backgroundColor: "#D1D5DB", height: 110, width: "100%" },
 
   backBtn: {
     position: "absolute",
@@ -676,30 +556,69 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
 
-  listContent: { paddingHorizontal: 26, paddingBottom: 0 },
-  columnWrap: { justifyContent: "space-between" },
-  cardCell: { flex: 1, paddingBottom: 16 },
+  listContent: { paddingBottom: 0 },
+  columnWrap: { justifyContent: "space-between", paddingHorizontal: 26 },
+  cardCell: { flex: 1, maxWidth: "48%", paddingBottom: 16 },
 
-  profileWrap: { flexDirection: "row", gap: 14, marginTop: -48, marginBottom: 10 },
-  avatarRing: {
-    width: 103,
-    height: 102,
-    borderRadius: 51,
-    backgroundColor: "#D1D5DB",
-    borderWidth: 4,
-    borderColor: "#fff",
-    overflow: "hidden",
+  // Header — matches ProfilePage exactly
+  headerBg: {
+    backgroundColor: "#d1d5db",
+    height: 110,
   },
-  avatar: { width: "100%", height: "100%" },
 
-  profileRight: { flex: 1, paddingTop: 44 },
-  name: { fontSize: 18, fontWeight: "900", color: "#111", marginBottom: 4 },
-  bio: { fontSize: 12, color: "#4B5563", marginBottom: 10 },
+  profileSection: {
+    paddingHorizontal: 26,
+  },
 
-  statsRow: { flexDirection: "row", gap: 18 },
-  stat: { fontSize: 13, color: "#111" },
-  statNum: { fontWeight: "900" },
-  statLabel: { color: "#4B5563" },
+  profileRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 16,
+    marginTop: -48,
+    marginBottom: 12,
+  },
+
+  avatar: {
+    width: 103,
+    height: 103,
+    borderRadius: 51.5,
+    borderWidth: 4,
+    borderColor: "#ffffff",
+    flexShrink: 0,
+  },
+
+  profileInfo: {
+    flex: 1,
+    paddingTop: 48,
+  },
+
+  userName: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#111827",
+    marginBottom: 2,
+  },
+
+  usernameText: {
+    fontSize: 13,
+    color: "#6b7280",
+    marginBottom: 4,
+  },
+
+  bio: {
+    fontSize: 12,
+    color: "#4b5563",
+    marginBottom: 12,
+  },
+
+  statsRow: {
+    flexDirection: "row",
+    gap: 16,
+    alignItems: "center",
+  },
+
+  statText: { fontSize: 13, color: "#374151" },
+  statNumber: { fontWeight: "bold", color: "#111827" },
 
   actionRow: { flexDirection: "row", gap: 12, marginBottom: 14 },
   actionBtn: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: "center", justifyContent: "center" },
@@ -713,22 +632,20 @@ const styles = StyleSheet.create({
   messageBtn: { backgroundColor: "#E5E7EB" },
   messageText: { color: "#374151" },
 
-  tabsRow: {
+  tabIconRow: {
     flexDirection: "row",
     justifyContent: "center",
-    alignItems: "center",
     gap: 28,
-    marginBottom: 14,
     borderTopWidth: 2,
     borderTopColor: "#111",
     paddingTop: 14,
+    marginBottom: 14,
   },
-  tabBtn: { width: 42, height: 42, borderRadius: 6, alignItems: "center", justifyContent: "center" },
-  tabOn: { backgroundColor: "#3B82F6" },
-  tabOff: { backgroundColor: "#D1D5DB" },
+  tabIcon: { width: 42, height: 42, borderRadius: 6, alignItems: "center", justifyContent: "center", backgroundColor: "#D1D5DB" },
+  tabIconActive: { backgroundColor: "#3B82F6" },
 
-  sectionHeader: { marginBottom: 12 },
-  sectionTitle: { fontSize: 18, fontWeight: "800", color: "#111", marginBottom: 10 },
+  contentHeader: { marginBottom: 12 },
+  contentTitle: { fontSize: 18, fontWeight: "800", color: "#111", marginBottom: 10 },
 
   sortChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1 },
@@ -754,23 +671,17 @@ const styles = StyleSheet.create({
   userRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 18, paddingVertical: 14 },
   userAvatarWrap: { width: 48, height: 48, borderRadius: 24, overflow: "hidden" },
   userAvatar: { width: "100%", height: "100%" },
-
   userInfo: { flex: 1, minWidth: 0 },
-  userName: { fontSize: 14, fontWeight: "800", color: "#111" },
+  userNameText: { fontSize: 14, fontWeight: "800", color: "#111" },
   userMeta: { fontSize: 12, color: "#6B7280", marginTop: 2 },
-  userMeta2: { fontSize: 12, color: "#4B5563", marginTop: 2 },
 
-  userActionBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8 },
-  userActionText: { fontSize: 12, fontWeight: "800" },
-  userActionFollowBtn: { backgroundColor: "#0EA5E9" },
-  userActionFollowText: { color: "#FFFFFF" },
-  userActionFollowBackText: { color: "#1D4ED8" },
-  userActionFollowingBtn: { backgroundColor: "#E5E7EB" },
-  userActionFollowingText: { color: "#374151" },
-  userActionDisabledBtn: { backgroundColor: "#F3F4F6" },
-  userActionDisabledText: { color: "#9CA3AF" },
+  removeBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, backgroundColor: "#fee2e2" },
+  removeBtnText: { color: "#dc2626", fontSize: 12, fontWeight: "800" },
 
   userSep: { height: 1, backgroundColor: "#F3F4F6" },
+
+  previewOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.9)", alignItems: "center", justifyContent: "center" },
+  previewImage: { width: "100%", height: "100%" },
 });
 
 export default FriendProfileScreen;

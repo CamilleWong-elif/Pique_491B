@@ -75,6 +75,7 @@ export function SocialActivityCard({
   const [isSaved, setIsSaved] = useState<boolean>(!!activity.isSaved);
   const [localLikes, setLocalLikes] = useState<number>(activity.likes || 0);
   const [showComments, setShowComments] = useState<boolean>(false);
+  const [localCommentCount, setLocalCommentCount] = useState<number>(activity.comments.length);
 
   // Gallery state
   const [galleryOpen, setGalleryOpen] = useState<boolean>(false);
@@ -133,7 +134,7 @@ export function SocialActivityCard({
   const onPostLocalComment = () => {
     if (!commentText.trim()) return;
     onPostComment?.(activity.id, commentText.trim());
-    // optimistic clear
+    setLocalCommentCount((c) => c + 1);
     setCommentText("");
   };
 
@@ -384,8 +385,8 @@ export function SocialActivityCard({
       {/* Likes/comments summary */}
       <TouchableOpacity onPress={() => setShowComments((s) => !s)}>
         <Text style={styles.metaText}>
-          {localLikes} {localLikes === 1 ? "like" : "likes"} · {activity.comments.length}{" "}
-          {activity.comments.length === 1 ? "comment" : "comments"}
+          {localLikes} {localLikes === 1 ? "like" : "likes"} · {localCommentCount}{" "}
+          {localCommentCount === 1 ? "comment" : "comments"}
         </Text>
       </TouchableOpacity>
 
