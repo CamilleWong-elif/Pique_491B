@@ -3,6 +3,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { apiGetUser, apiFollowUser, apiUnfollowUser, apiGetFollowers, apiGetFollowing } from "@/api";
 import { auth } from "@/firebase";
+import { useAuth } from "@/context/AuthContext";
 import {
   View,
   Text,
@@ -63,6 +64,56 @@ type Props = {
 type TabKey = "posted" | "liked" | "booked";
 type SortKey = "latest" | "oldest" | "name-asc" | "name-desc" | "rating";
 
+type FollowButtonState = {
+  canFollow: boolean;
+  isFollowing: boolean;
+  isFollowedByFriend: boolean;
+  label: "Follow" | "Following" | "Follow Back" | "You";
+};
+
+function getFollowButtonState(params: {
+  currentUid: string;
+  friendId: string;
+  friendFollowerIds: string[];
+  friendFollowingIds: string[];
+  myFollowerIds: string[];
+  myFollowingIds: string[];
+}): FollowButtonState {
+  const {
+    currentUid,
+    friendId,
+    friendFollowerIds,
+    friendFollowingIds,
+    myFollowerIds,
+    myFollowingIds,
+  } = params;
+
+  if (!currentUid || !friendId) {
+    return { canFollow: false, isFollowing: false, isFollowedByFriend: false, label: "Follow" };
+  }
+
+  if (currentUid === friendId) {
+    return { canFollow: false, isFollowing: false, isFollowedByFriend: false, label: "You" };
+  }
+
+  const isFollowingByFriendFollowers = friendFollowerIds.includes(currentUid);
+  const isFollowingByMyFollowing = myFollowingIds.includes(friendId);
+  const isFollowing = isFollowingByFriendFollowers || isFollowingByMyFollowing;
+
+  const isFollowedByMyFollowers = myFollowerIds.includes(friendId);
+  const isFollowedByFriendFollowing = friendFollowingIds.includes(currentUid);
+  const isFollowedByFriend = isFollowedByMyFollowers || isFollowedByFriendFollowing;
+
+  const label = isFollowing ? "Following" : isFollowedByFriend ? "Follow Back" : "Follow";
+
+  return {
+    canFollow: true,
+    isFollowing,
+    isFollowedByFriend,
+    label,
+  };
+}
+
 export function FriendProfileScreen({
   friendName,
   onNavigate,
@@ -74,6 +125,7 @@ export function FriendProfileScreen({
   BottomNavigation,
   EventCard,
 }: Props) {
+  const { profile } = useAuth();
   const [activeTab, setActiveTab] = useState<TabKey>("posted");
   const [sortOption, setSortOption] = useState<SortKey>("latest");
   const [likedSortOption, setLikedSortOption] = useState<SortKey>("latest");
@@ -81,8 +133,8 @@ export function FriendProfileScreen({
   const [showFollowModal, setShowFollowModal] = useState<"followers" | "following" | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const currentUid = auth.currentUser?.uid ?? "";
-  const [removedFollowerIds, setRemovedFollowerIds] = useState<Set<string>>(new Set());
-  const [removedFollowingIds, setRemovedFollowingIds] = useState<Set<string>>(new Set());
+  const [myFollowingIds, setMyFollowingIds] = useState<string[]>([]);
+  const [myFollowerIds, setMyFollowerIds] = useState<string[]>([]);
 
   const [friendData, setFriendData] = useState({
     id: friendName,
@@ -94,17 +146,24 @@ export function FriendProfileScreen({
     followingUids: [] as string[],
   });
 
+
+  // true if the current user's UID is in the friend's followerCount array
   const isFollowing = currentUid ? friendData.followerUids.includes(currentUid) : false;
 
   const handleFollowToggle = async () => {
-    if (!currentUid) return;
+    if (!currentUid || !followButtonState.canFollow) return;
     try {
-      if (isFollowing) {
-        await apiUnfollowUser(friendName);
+      if (followButtonState.isFollowing) {
+        await apiUnfollowUser(friendId);
         setFriendData(prev => ({ ...prev, followerUids: prev.followerUids.filter(id => id !== currentUid) }));
+        setMyFollowingIds(prev => prev.filter(id => id !== friendId));
       } else {
-        await apiFollowUser(friendName);
-        setFriendData(prev => ({ ...prev, followerUids: [...prev.followerUids, currentUid] }));
+        await apiFollowUser(friendId);
+        setFriendData(prev => ({
+          ...prev,
+          followerUids: prev.followerUids.includes(currentUid) ? prev.followerUids : [...prev.followerUids, currentUid],
+        }));
+        setMyFollowingIds(prev => (prev.includes(friendId) ? prev : [...prev, friendId]));
       }
     } catch (err) {
       console.error("Follow toggle error:", err);
@@ -149,7 +208,7 @@ export function FriendProfileScreen({
 
   useEffect(() => {
     if (friendData.followerUids.length === 0) { setMockFollowers([]); return; }
-    apiGetFollowers(friendName)
+    apiGetFollowers(friendId)
       .then((data: any[]) => setMockFollowers(data.map(d => ({
         id: d.id,
         name: d.name ?? "",
@@ -158,11 +217,11 @@ export function FriendProfileScreen({
         avatar: d.avatar ?? "",
       }))))
       .catch(() => setMockFollowers([]));
-  }, [friendData.followerUids.join(","), friendName]);
+  }, [friendData.followerUids.join(","), friendId]);
 
   useEffect(() => {
     if (friendData.followingUids.length === 0) { setMockFollowing([]); return; }
-    apiGetFollowing(friendName)
+    apiGetFollowing(friendId)
       .then((data: any[]) => setMockFollowing(data.map(d => ({
         id: d.id,
         name: d.name ?? "",
@@ -171,32 +230,23 @@ export function FriendProfileScreen({
         avatar: d.avatar ?? "",
       }))))
       .catch(() => setMockFollowing([]));
-  }, [friendData.followingUids.join(","), friendName]);
+  }, [friendData.followingUids.join(","), friendId]);
 
   const postedEventsRaw = useMemo(() => {
     const safe = (idx: number) => mockEvents[idx] || mockEvents[0];
     return [
-      { ...safe(1), datePosted: new Date("2025-01-25") },
-      { ...safe(4), datePosted: new Date("2025-01-20") },
-      { ...safe(2), datePosted: new Date("2025-01-27") },
     ];
   }, [mockEvents]);
 
   const likedEventsRaw = useMemo(() => {
     const safe = (idx: number) => mockEvents[idx] || mockEvents[0];
     return [
-      { ...safe(0), dateLiked: new Date("2025-01-26") },
-      { ...safe(3), dateLiked: new Date("2025-01-22") },
-      { ...safe(5), dateLiked: new Date("2025-01-24") },
     ];
   }, [mockEvents]);
 
   const bookedEventsRaw = useMemo(() => {
     const safe = (idx: number) => mockEvents[idx] || mockEvents[0];
     return [
-      { ...safe(2), dateBooked: new Date("2025-01-23") },
-      { ...safe(1), dateBooked: new Date("2025-01-21") },
-      { ...safe(4), dateBooked: new Date("2025-01-25") },
     ];
   }, [mockEvents]);
 
@@ -283,25 +333,30 @@ export function FriendProfileScreen({
                 </View>
               </View>
 
-              {/* Follow / Message buttons */}
-              <View style={styles.actionRow}>
-                <TouchableOpacity
-                  onPress={handleFollowToggle}
-                  style={[styles.actionBtn, isFollowing ? styles.followingBtn : styles.followBtn]}
-                  activeOpacity={0.9}
-                >
-                  <Text style={[styles.actionText, isFollowing ? styles.followingText : styles.followText]}>
-                    {isFollowing ? "Following" : "Follow"}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={onOpenMessages}
-                  style={[styles.actionBtn, styles.messageBtn]}
-                  activeOpacity={0.9}
-                >
-                  <Text style={[styles.actionText, styles.messageText]}>Message</Text>
-                </TouchableOpacity>
-              </View>
+            {/* Follow / Message */}
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                onPress={handleFollowToggle}
+                style={[styles.actionBtn, isFollowing ? styles.followingBtn : styles.followBtn]}
+                activeOpacity={0.9}
+                accessibilityRole="button"
+                accessibilityLabel={isFollowing ? "Unfollow" : "Follow"}
+              >
+                <Text style={[styles.actionText, isFollowing ? styles.followingText : styles.followText]}>
+                  {isFollowing ? "Following" : "Follow"}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={onOpenMessages}
+                style={[styles.actionBtn, styles.messageBtn]}
+                activeOpacity={0.9}
+                accessibilityRole="button"
+                accessibilityLabel="Message"
+              >
+                <Text style={[styles.actionText, styles.messageText]}>Message</Text>
+              </TouchableOpacity>
+            </View>
 
               {/* Tab Icons */}
               <View style={styles.tabIconRow}>
@@ -389,8 +444,8 @@ export function FriendProfileScreen({
             <FlatList
               data={
                 showFollowModal === "followers"
-                  ? mockFollowers.filter(u => !removedFollowerIds.has(u.id))
-                  : mockFollowing.filter(u => !removedFollowingIds.has(u.id))
+                  ? mockFollowers
+                  : mockFollowing
               }
               keyExtractor={(u) => u.id}
               renderItem={({ item: user }) => (
@@ -410,21 +465,57 @@ export function FriendProfileScreen({
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.removeBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove"
                     onPress={async () => {
+                      const rowFollowState = getFollowButtonState({
+                        currentUid,
+                        friendId: user.id,
+                        friendFollowerIds: [],
+                        friendFollowingIds: [],
+                        myFollowerIds,
+                        myFollowingIds,
+                      });
+
+                      if (!rowFollowState.canFollow) return;
+
                       try {
-                        if (showFollowModal === "followers") {
-                          await apiUnfollowUser(friendName);
-                          setRemovedFollowerIds(prev => new Set([...prev, user.id]));
-                        } else {
+                        if (rowFollowState.isFollowing) {
                           await apiUnfollowUser(user.id);
-                          setRemovedFollowingIds(prev => new Set([...prev, user.id]));
+                          setMyFollowingIds(prev => prev.filter(id => id !== user.id));
+                        } else {
+                          await apiFollowUser(user.id);
+                          setMyFollowingIds(prev => (prev.includes(user.id) ? prev : [...prev, user.id]));
                         }
                       } catch (err) {
-                        console.error("Remove error:", err);
+                        console.error("User follow toggle error:", err);
                       }
                     }}
                   >
-                    <Text style={styles.removeBtnText}>Remove</Text>
+                    <Text
+                      style={[
+                        styles.userActionText,
+                        user.id === currentUid
+                          ? styles.userActionDisabledText
+                          : myFollowingIds.includes(user.id)
+                            ? styles.userActionFollowingText
+                            : myFollowerIds.includes(user.id)
+                              ? styles.userActionFollowBackText
+                              : styles.userActionFollowText,
+                      ]}
+                    >
+                      {(() => {
+                        const rowFollowState = getFollowButtonState({
+                          currentUid,
+                          friendId: user.id,
+                          friendFollowerIds: [],
+                          friendFollowingIds: [],
+                          myFollowerIds,
+                          myFollowingIds,
+                        });
+                        return rowFollowState.label;
+                      })()}
+                    </Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -534,6 +625,8 @@ const styles = StyleSheet.create({
   actionText: { fontSize: 14, fontWeight: "800" },
   followBtn: { backgroundColor: "#0EA5E9" },
   followText: { color: "#fff" },
+  followDisabledBtn: { backgroundColor: "#F3F4F6" },
+  followDisabledText: { color: "#9CA3AF" },
   followingBtn: { backgroundColor: "#E5E7EB" },
   followingText: { color: "#374151" },
   messageBtn: { backgroundColor: "#E5E7EB" },
@@ -584,6 +677,7 @@ const styles = StyleSheet.create({
 
   removeBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, backgroundColor: "#fee2e2" },
   removeBtnText: { color: "#dc2626", fontSize: 12, fontWeight: "800" },
+
   userSep: { height: 1, backgroundColor: "#F3F4F6" },
 
   previewOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.9)", alignItems: "center", justifyContent: "center" },
