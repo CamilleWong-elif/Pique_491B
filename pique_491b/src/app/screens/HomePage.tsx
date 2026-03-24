@@ -1,18 +1,23 @@
 import { EventCard } from '@/components/EventCard';
 import { NavigationBar } from '@/components/NavigationBar';
 import { NotificationsModal } from '@/components/NotificationsModal';
-import { SocialActivityCard } from '@/components/Placeholder';
+import { SocialActivityCard } from '@/components/SocialActivityCard';
 import { SearchOverlay } from '@/components/SearchOverlay';
 import { useAuth } from '@/context/AuthContext';
 import { apiGetEvents, apiToggleLike } from '@/api';
-import { Bell, Menu, MessageCircle, Plus, Search } from 'lucide-react-native';
+import { Bell, Menu, MessageCircle, Plus, Search, SlidersHorizontal, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 
 const mockSocialActivities: any[] = [];
-const categories = ['All', 'Music', 'Sports', 'Arts', 'Food & Drink', 'Tech', 'Outdoors'];
+const ALL_CATEGORIES = [
+  'Music', 'Sports', 'Arts', 'Food & Drink', 'Tech', 'Outdoors', 'Comedy',
+  'Film', 'Theater', 'Gaming', 'Fitness', 'Nightlife', 'Family', 'Education',
+  'Fashion', 'Business', 'Health & Wellness', 'Travel', 'Charity', 'Religion',
+];
 const mockNotifications: any[] = [];
 
 const logo = require('@/assets/images/temp_logo.png');
@@ -26,16 +31,35 @@ interface HomePageProps {
 
 export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSignOut }: HomePageProps) {
   const { user, profile } = useAuth();
-  const [selectedCategories, setSelectedCategories] = useState<string[]>(['All']);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [location, setLocation] = useState('Los Angeles, CA');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [notifications, setNotifications] = useState(mockNotifications);
   const [events, setEvents] = useState<any[]>([]);
   const [likedEventIds, setLikedEventIds] = useState<Set<string>>(new Set());
   const insets = useSafeAreaInsets();
+
+  // Filter state
+  const [pendingCategories, setPendingCategories] = useState<string[]>([]);
+  const [quickDate, setQuickDate] = useState<'today' | 'week' | 'month' | null>(null);
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [sortOrder, setSortOrder] = useState<'soonest' | 'latest'>('soonest');
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
+
+  // Applied filter state
+  const [appliedCategories, setAppliedCategories] = useState<string[]>([]);
+  const [appliedQuickDate, setAppliedQuickDate] = useState<'today' | 'week' | 'month' | null>(null);
+  const [appliedStartDate, setAppliedStartDate] = useState<Date | null>(null);
+  const [appliedEndDate, setAppliedEndDate] = useState<Date | null>(null);
+  const [appliedSortOrder, setAppliedSortOrder] = useState<'soonest' | 'latest'>('soonest');
+
+  const isFiltered = appliedCategories.length > 0 || appliedQuickDate !== null || appliedStartDate !== null || appliedEndDate !== null;
 
   // Sync liked events from profile
   useEffect(() => {
@@ -108,23 +132,77 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
 
   const unreadNotificationCount = notifications.filter((n: any) => !n.read).length;
 
-  const activityEvents = events.filter((e: any) => e.category !== 'Food & Drink');
-  const filteredEvents = selectedCategories.includes('All')
-    ? activityEvents
-    : activityEvents.filter((e: any) => selectedCategories.includes(e.category));
-
-  const handleCategoryClick = (category: string) => {
-    if (category === 'All') {
-      setSelectedCategories(['All']);
-    } else {
-      if (selectedCategories.includes(category)) {
-        const updated = selectedCategories.filter(c => c !== category);
-        setSelectedCategories(updated.length === 0 ? ['All'] : updated);
-      } else {
-        setSelectedCategories([...selectedCategories.filter(c => c !== 'All'), category]);
-      }
-    }
+  const getEventDate = (e: any): Date => {
+    const val = e.date ?? e.startDate;
+    if (!val) return new Date(0);
+    if (typeof val?.toDate === 'function') return val.toDate();
+    if (val instanceof Date) return val;
+    return new Date(val);
   };
+
+  const applyFilters = (evts: any[]) => {
+    let result = [...evts];
+    if (appliedCategories.length > 0) {
+      result = result.filter((e: any) => appliedCategories.includes(e.category));
+    }
+    const now = new Date();
+    if (appliedQuickDate === 'today') {
+      result = result.filter((e: any) => {
+        const d = getEventDate(e);
+        return d.toDateString() === now.toDateString();
+      });
+    } else if (appliedQuickDate === 'week') {
+      const weekEnd = new Date(now); weekEnd.setDate(now.getDate() + 7);
+      result = result.filter((e: any) => { const d = getEventDate(e); return d >= now && d <= weekEnd; });
+    } else if (appliedQuickDate === 'month') {
+      const monthEnd = new Date(now); monthEnd.setMonth(now.getMonth() + 1);
+      result = result.filter((e: any) => { const d = getEventDate(e); return d >= now && d <= monthEnd; });
+    }
+    if (appliedStartDate) result = result.filter((e: any) => getEventDate(e) >= appliedStartDate!);
+    if (appliedEndDate) result = result.filter((e: any) => getEventDate(e) <= appliedEndDate!);
+    result.sort((a, b) => {
+      const da = getEventDate(a).getTime();
+      const db = getEventDate(b).getTime();
+      return appliedSortOrder === 'soonest' ? da - db : db - da;
+    });
+    return result;
+  };
+
+  const allFilteredEvents = applyFilters(events);
+
+  const openFilter = () => {
+    setPendingCategories(appliedCategories);
+    setQuickDate(appliedQuickDate);
+    setStartDate(appliedStartDate);
+    setEndDate(appliedEndDate);
+    setSortOrder(appliedSortOrder);
+    setIsFilterOpen(true);
+  };
+
+  const handleApplyFilter = () => {
+    setAppliedCategories(pendingCategories);
+    setAppliedQuickDate(quickDate);
+    setAppliedStartDate(startDate);
+    setAppliedEndDate(endDate);
+    setAppliedSortOrder(sortOrder);
+    setIsFilterOpen(false);
+  };
+
+  const handleClearFilter = () => {
+    setPendingCategories([]);
+    setQuickDate(null);
+    setStartDate(null);
+    setEndDate(null);
+    setSortOrder('soonest');
+  };
+
+  const togglePendingCategory = (cat: string) => {
+    setPendingCategories(prev =>
+      prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
+    );
+  };
+
+  const formatDate = (d: Date | null) => d ? `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}` : null;
 
   return (
     <View style={styles.container}>
@@ -259,40 +337,24 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
           </TouchableOpacity>
         </View>
 
-        {/* Category Filters */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.categoriesScroll}
-          contentContainerStyle={styles.categoriesContent}
-        >
-          {categories.map((category) => (
-            <TouchableOpacity
-              key={category}
-              onPress={() => handleCategoryClick(category)}
-              style={[
-                styles.categoryChip,
-                selectedCategories.includes(category) && styles.categoryChipActive,
-              ]}
-            >
-              <Text style={[
-                styles.categoryText,
-                selectedCategories.includes(category) && styles.categoryTextActive,
-              ]}>
-                {category}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        {/* Filter Button */}
+        <View style={styles.filterRow}>
+          <TouchableOpacity style={[styles.filterIconButton, isFiltered && styles.filterIconButtonActive]} onPress={openFilter}>
+            <SlidersHorizontal size={16} color={isFiltered ? '#ffffff' : '#374151'} />
+            <Text style={[styles.filterButtonText, isFiltered && styles.filterButtonTextActive]}>
+              Filter & Sort{isFiltered ? ' •' : ''}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-        {/* Event Carousel */}
+        {/* Horizontal Carousel */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          style={styles.carousel}
           contentContainerStyle={styles.carouselContent}
+          style={styles.carousel}
         >
-          {filteredEvents.map((event: any) => {
+          {allFilteredEvents.map((event: any) => {
             const dateVal = event.date ?? event.startDate;
             const startDateStr = formattoMMDD(dateVal);
             return (
@@ -319,20 +381,22 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
           })}
         </ScrollView>
 
-        {/* Activity Feed — stub, will populate when SocialActivityCard is converted */}
-        <View style={styles.feedContainer}>
-          <Text style={styles.feedTitle}>Activity Feed</Text>
-          {mockSocialActivities.map((activity: any) => (
-            <SocialActivityCard
-              key={activity.id}
-              activity={activity}
-              onClick={() => onNavigate('event')}
-              onFriendClick={(friendName: string) =>
-                onNavigate('friendProfile', undefined, { friendName })
-              }
-            />
-          ))}
-        </View>
+        {/* Activity Feed — only show when no filters applied */}
+        {!isFiltered && (
+          <View style={styles.feedContainer}>
+            <Text style={styles.feedTitle}>Activity Feed</Text>
+            {mockSocialActivities.map((activity: any) => (
+              <SocialActivityCard
+                key={activity.id}
+                activity={activity}
+                onClick={() => onNavigate('event')}
+                onFriendClick={(friendName: string) =>
+                  onNavigate('friendProfile', undefined, { friendName })
+                }
+              />
+            ))}
+          </View>
+        )}
 
       </ScrollView>
 
@@ -376,6 +440,109 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
         }
         unreadCount={unreadNotificationCount}
       />
+
+      {/* Filter & Sort Modal */}
+      <Modal visible={isFilterOpen} transparent animationType="slide">
+        <View style={styles.filterModalOverlay}>
+          <TouchableOpacity style={styles.filterModalBackdrop} onPress={() => setIsFilterOpen(false)} />
+          <View style={styles.filterModalSheet}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Header */}
+              <View style={styles.filterModalHeader}>
+                <Text style={styles.filterModalTitle}>Filter & Sort</Text>
+                <TouchableOpacity onPress={() => setIsFilterOpen(false)}>
+                  <X size={22} color="#374151" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Category */}
+              <Text style={styles.filterSectionLabel}>CATEGORY</Text>
+              <View style={styles.filterChipsWrap}>
+                {ALL_CATEGORIES.map(cat => (
+                  <TouchableOpacity
+                    key={cat}
+                    style={[styles.filterChip, pendingCategories.includes(cat) && styles.filterChipActive]}
+                    onPress={() => togglePendingCategory(cat)}
+                  >
+                    <Text style={[styles.filterChipText, pendingCategories.includes(cat) && styles.filterChipTextActive]}>{cat}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Quick Date */}
+              <Text style={styles.filterSectionLabel}>QUICK DATE</Text>
+              <View style={styles.filterChipsRow}>
+                {(['today', 'week', 'month'] as const).map(q => (
+                  <TouchableOpacity
+                    key={q}
+                    style={[styles.filterChip, quickDate === q && styles.filterChipActive]}
+                    onPress={() => setQuickDate(quickDate === q ? null : q)}
+                  >
+                    <Text style={[styles.filterChipText, quickDate === q && styles.filterChipTextActive]}>
+                      {q === 'today' ? 'Today' : q === 'week' ? 'This Week' : 'This Month'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Date Range */}
+              <Text style={styles.filterSectionLabel}>DATE RANGE</Text>
+              <View style={styles.dateRangeRow}>
+                <TouchableOpacity style={styles.dateInput} onPress={() => setShowStartPicker(true)}>
+                  <Text style={styles.dateInputText}>{formatDate(startDate) ?? 'Start date'}</Text>
+                </TouchableOpacity>
+                <Text style={styles.dateArrow}>→</Text>
+                <TouchableOpacity style={styles.dateInput} onPress={() => setShowEndPicker(true)}>
+                  <Text style={styles.dateInputText}>{formatDate(endDate) ?? 'End date'}</Text>
+                </TouchableOpacity>
+              </View>
+              {showStartPicker && (
+                <DateTimePicker
+                  value={startDate ?? new Date()}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onChange={(_, d) => { setShowStartPicker(false); if (d) setStartDate(d); }}
+                />
+              )}
+              {showEndPicker && (
+                <DateTimePicker
+                  value={endDate ?? new Date()}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onChange={(_, d) => { setShowEndPicker(false); if (d) setEndDate(d); }}
+                />
+              )}
+
+              {/* Sort By */}
+              <Text style={styles.filterSectionLabel}>SORT BY</Text>
+              <View style={styles.filterChipsRow}>
+                <TouchableOpacity
+                  style={[styles.filterChip, sortOrder === 'soonest' && styles.filterChipActive]}
+                  onPress={() => setSortOrder('soonest')}
+                >
+                  <Text style={[styles.filterChipText, sortOrder === 'soonest' && styles.filterChipTextActive]}>Soonest First</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.filterChip, sortOrder === 'latest' && styles.filterChipActive]}
+                  onPress={() => setSortOrder('latest')}
+                >
+                  <Text style={[styles.filterChipText, sortOrder === 'latest' && styles.filterChipTextActive]}>Latest First</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Actions */}
+              <View style={styles.filterActions}>
+                <TouchableOpacity style={styles.clearButton} onPress={handleClearFilter}>
+                  <Text style={styles.clearButtonText}>Clear All</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.applyButton} onPress={handleApplyFilter}>
+                  <Text style={styles.applyButtonText}>Apply</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
     </View>
   );
@@ -525,34 +692,32 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#111827',
   },
-  // Categories
-  categoriesScroll: {
-    marginBottom: 20,
-  },
-  categoriesContent: {
+  filterRow: {
     paddingHorizontal: 18,
-    gap: 10,
+    marginBottom: 16,
   },
-  categoryChip: {
-    paddingHorizontal: 20,
+  filterIconButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 9999,
-    backgroundColor: '#eff6ff',
+    borderRadius: 10,
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
   },
-  categoryChipActive: {
+  filterIconButtonActive: {
     backgroundColor: '#3b82f6',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
+    borderColor: '#3b82f6',
   },
-  categoryText: {
+  filterButtonText: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#2563eb',
+    color: '#374151',
   },
-  categoryTextActive: {
+  filterButtonTextActive: {
     color: '#ffffff',
   },
   // Carousel
@@ -561,20 +726,138 @@ const styles = StyleSheet.create({
   },
   carouselContent: {
     paddingHorizontal: 18,
-    gap: 16,
+    gap: 12,
   },
   carouselItem: {
     width: 200,
   },
   // Feed
   feedContainer: {
-    paddingHorizontal: 34,
+    paddingHorizontal: 18,
   },
   feedTitle: {
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 16,
     color: '#111827',
+  },
+  // Filter Modal
+  filterModalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  filterModalBackdrop: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  filterModalSheet: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 24,
+    maxHeight: '85%',
+  },
+  filterModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  filterModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  filterSectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6b7280',
+    letterSpacing: 1,
+    marginBottom: 10,
+    marginTop: 16,
+  },
+  filterChipsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterChipsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 9999,
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  filterChipActive: {
+    backgroundColor: '#3b82f6',
+    borderColor: '#3b82f6',
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#374151',
+  },
+  filterChipTextActive: {
+    color: '#ffffff',
+  },
+  dateRangeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dateInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#f9fafb',
+  },
+  dateInputText: {
+    fontSize: 13,
+    color: '#6b7280',
+  },
+  dateArrow: {
+    fontSize: 16,
+    color: '#9ca3af',
+  },
+  filterActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 24,
+    marginBottom: 8,
+  },
+  clearButton: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    alignItems: 'center',
+  },
+  clearButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  applyButton: {
+    flex: 2,
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: '#3b82f6',
+    alignItems: 'center',
+  },
+  applyButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#ffffff',
   },
 });
 

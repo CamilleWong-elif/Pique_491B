@@ -23,7 +23,6 @@ import {
   FlatList,
   Image,
   Modal,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -143,14 +142,18 @@ export function ProfilePage({
           .map(mapToEvent);
         setLikedEvents(liked);
 
-        // Fetch booked events
-        const bookings = await apiGetBookings();
-        const bookedEventIds = [...new Set(bookings.map((b: any) => b.eventId))];
-        const bookedIdSet = new Set(bookedEventIds);
-        const booked = allEvents
-          .filter((e: any) => bookedIdSet.has(e.id))
-          .map(mapToEvent);
-        setBookedEvents(booked);
+        // Fetch booked events (non-blocking — profile still works if this fails)
+        try {
+          const bookings = await apiGetBookings();
+          const bookedEventIds = [...new Set(bookings.map((b: any) => b.eventId))];
+          const bookedIdSet = new Set(bookedEventIds);
+          const booked = allEvents
+            .filter((e: any) => bookedIdSet.has(e.id))
+            .map(mapToEvent);
+          setBookedEvents(booked);
+        } catch (bookingErr) {
+          console.warn('Could not fetch bookings:', bookingErr);
+        }
       } catch (err) {
         console.error('Error fetching profile events:', err);
       } finally {
@@ -330,6 +333,11 @@ export function ProfilePage({
 
   return (
     <View style={styles.container}>
+      {/* Create button — floats over header top-right */}
+      <TouchableOpacity style={styles.createButton} onPress={() => onNavigate('create')}>
+        <Plus size={20} color="#374151" />
+      </TouchableOpacity>
+
       <FlatList
         data={activeEvents}
         keyExtractor={(item) => item.id}
@@ -341,14 +349,7 @@ export function ProfilePage({
         ListHeaderComponent={
           <View>
             {/* Header Background */}
-            <View style={styles.headerBg}>
-              <TouchableOpacity
-                style={styles.createButton}
-                onPress={() => onNavigate('create')}
-              >
-                <Plus size={20} color="#374151" />
-              </TouchableOpacity>
-            </View>
+            <View style={styles.headerBg} />
 
             {/* Profile Info */}
             <View style={styles.profileSection}>
@@ -409,19 +410,22 @@ export function ProfilePage({
                 </Text>
 
                 {/* Sort Chips */}
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  {sortOptions.map((opt) => (
-                    <TouchableOpacity
-                      key={opt.value}
-                      style={[styles.sortChip, currentSort === opt.value && styles.sortChipActive]}
-                      onPress={() => setCurrentSort(opt.value)}
-                    >
-                      <Text style={[styles.sortChipText, currentSort === opt.value && styles.sortChipTextActive]}>
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
+                <View style={styles.sortChips}>
+                  {sortOptions.map((opt) => {
+                    const on = currentSort === opt.value;
+                    return (
+                      <TouchableOpacity
+                        key={opt.value}
+                        style={[styles.chip, on ? styles.chipOn : styles.chipOff]}
+                        onPress={() => setCurrentSort(opt.value)}
+                      >
+                        <Text style={[styles.chipText, on ? styles.chipTextOn : styles.chipTextOff]}>
+                          {opt.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
               </View>
             </View>
           </View>
@@ -477,7 +481,7 @@ export function ProfilePage({
               renderItem={({ item }) => (
                 <View style={styles.userRow}>
                   <TouchableOpacity onPress={() => { setShowFollowModal(null); onNavigate('friendProfile', undefined, { friendName: item.id }); }}>
-                    <Image source={{ uri: item.avatar }} style={styles.userAvatar} />
+                    <Image source={{ uri: item.avatar || `https://api.dicebear.com/7.x/initials/png?seed=${encodeURIComponent(item.name || item.id)}` }} style={styles.userAvatar} />
                   </TouchableOpacity>
                   <TouchableOpacity style={{ flex: 1, minWidth: 0 }} onPress={() => { setShowFollowModal(null); onNavigate('friendProfile', undefined, { friendName: item.id }); }}>
                     <Text style={styles.modalUserName} numberOfLines={1}>{item.name}</Text>
@@ -620,17 +624,23 @@ const styles = StyleSheet.create({
   headerBg: {
     backgroundColor: '#d1d5db',
     height: 110,
-    paddingTop: 59,
-    alignItems: 'flex-end',
-    paddingRight: 18,
   },
   createButton: {
+    position: 'absolute',
+    top: 59,
+    right: 18,
+    zIndex: 20,
     width: 42,
     height: 42,
     borderRadius: 21,
     backgroundColor: '#e5e7eb',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
   profileSection: {
     paddingHorizontal: 26,
@@ -676,11 +686,11 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   statText: {
-    fontSize: 12,
-    color: '#4b5563',
+    fontSize: 13,
+    color: '#374151',
   },
   statNumber: {
-    fontWeight: '600',
+    fontWeight: 'bold',
     color: '#111827',
   },
   editButton: {
@@ -694,11 +704,11 @@ const styles = StyleSheet.create({
   tabIconRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 40,
-    paddingVertical: 16,
+    gap: 28,
     borderTopWidth: 2,
     borderTopColor: '#111827',
-    marginBottom: 16,
+    paddingTop: 14,
+    marginBottom: 14,
   },
   tabIcon: {
     width: 42,
@@ -712,33 +722,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#3b82f6',
   },
   contentHeader: {
-    marginBottom: 16,
+    marginBottom: 12,
   },
   contentTitle: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 8,
+    fontWeight: '800',
+    color: '#111',
+    marginBottom: 10,
   },
-  sortChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 6,
-    marginRight: 6,
-  },
-  sortChipActive: {
-    backgroundColor: '#3b82f6',
-    borderColor: '#3b82f6',
-  },
-  sortChipText: {
-    fontSize: 11,
-    color: '#374151',
-  },
-  sortChipTextActive: {
-    color: '#ffffff',
-  },
+  sortChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1 },
+  chipOn: { backgroundColor: '#DBEAFE', borderColor: '#3B82F6' },
+  chipOff: { backgroundColor: '#fff', borderColor: '#D1D5DB' },
+  chipText: { fontSize: 12, fontWeight: '800' },
+  chipTextOn: { color: '#1D4ED8' },
+  chipTextOff: { color: '#374151' },
   emptyContainer: {
     alignItems: 'center',
     paddingVertical: 48,
