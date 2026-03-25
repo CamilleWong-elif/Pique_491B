@@ -20,6 +20,8 @@ router.post("/", authenticate, async (req, res) => {
       ageRange,
       categories,
       ticketTiers,
+      imageUrl,
+      imageUrls,
     } = req.body;
 
     // ── Validation (mirrors CreateEventPage client-side checks) ──
@@ -62,6 +64,8 @@ router.post("/", authenticate, async (req, res) => {
       ageRange: ageRange || "Any",
       categories: categories || [],
       ticketTiers: ticketTiers || [],
+      imageUrl: imageUrl || null,
+      imageUrls: imageUrls || [],
       createdBy: req.user.uid,
       createdAt: new Date().toISOString(),
     };
