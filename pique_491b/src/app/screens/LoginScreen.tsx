@@ -150,7 +150,7 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
         setError('Google Play Services not available.');
       } else {
         setError('Unable to sign in with Google. Please try again.');
-        console.log('Google sign in error:', JSON.stringify(err, null, 2));
+        console.log('Google sign in error code:', err.code, 'message:', err.message);
       }
     } finally {
       setIsSubmitting(false);

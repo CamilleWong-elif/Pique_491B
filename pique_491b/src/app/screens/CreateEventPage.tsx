@@ -18,6 +18,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiCreateEvent } from '@/api';
+import { storage } from '@/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
@@ -193,6 +195,18 @@ export function CreateEventPage({ onNavigate, onOpenMessages, unreadMessageCount
         return;
       }
 
+      // Upload photos to Firebase Storage and get download URLs
+      const imageUrls: string[] = [];
+      for (let i = 0; i < photos.length; i++) {
+        const uri = photos[i];
+        const response = await fetch(uri);
+        const blob = await response.blob();
+        const storageRef = ref(storage, `events/${Date.now()}_${i}.jpg`);
+        await uploadBytes(storageRef, blob);
+        const downloadUrl = await getDownloadURL(storageRef);
+        imageUrls.push(downloadUrl);
+      }
+
       await apiCreateEvent({
         name: eventName,
         description,
@@ -203,6 +217,8 @@ export function CreateEventPage({ onNavigate, onOpenMessages, unreadMessageCount
         ageRange,
         categories: selectedCategories,
         ticketTiers,
+        imageUrl: imageUrls[0] ?? null,
+        imageUrls,
       });
       if (onEventCreated) onEventCreated();
       console.log('Navigating to event-posted with:', eventName);
