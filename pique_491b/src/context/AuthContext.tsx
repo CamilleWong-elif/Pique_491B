@@ -7,6 +7,7 @@ export interface UserProfile {
   displayName?: string;
   bio?: string;
   photoURL?: string;
+  avatarDataUrl?: string;
   username?: string;
   followerCount?: string[];
   followingCount?: string[];
