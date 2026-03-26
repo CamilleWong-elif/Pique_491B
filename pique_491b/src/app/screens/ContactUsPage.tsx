@@ -1,34 +1,147 @@
-import React, { useState } from 'react';
-import { View, TextInput, TouchableOpacity, Text, StyleSheet, SafeAreaView, Platform, StatusBar } from 'react-native';
-import { ArrowLeft } from 'lucide-react-native';
+import React, { useMemo, useState } from 'react';
+import {
+    View,
+    TextInput,
+    TouchableOpacity,
+    Text,
+    StyleSheet,
+    SafeAreaView,
+    Platform,
+    StatusBar,
+    Alert,
+    KeyboardAvoidingView,
+    ScrollView,
+} from 'react-native';
+import { ArrowLeft, Mail, User, MessageSquare, Send } from 'lucide-react-native';
 
 type Props = {
     onNavigate?: (page: string) => void;
 };
 
-export default function ContactUsPage({ onNavigate }: Props) {
-    const [name, setName] = useState('');
-    const [email, setEmail] = useState('');
-    const [subject, setSubject] = useState('');
-    const [message, setMessage] = useState('');
-    const topPad = Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0;
+type ContactForm = {
+    name: string;
+    email: string;
+    subject: string;
+    message: string;
+};
 
-    const handleSend = () => {
-        if (name.trim() && email.trim() && subject.trim() && message.trim()) {
-            console.log('Sending:', { name, email, subject, message });
-            setName('');
-            setEmail('');
-            setSubject('');
-            setMessage('');
-            alert('Message sent successfully!');
-        } else {
-            alert('Please fill in all fields');
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const WEB3FORMS_URL = 'https://api.web3forms.com/submit';
+const WEB3FORMS_ACCESS_KEY =
+    process.env.EXPO_PUBLIC_WEB3FORMS_ACCESS_KEY || process.env.EXPO_PUBLIC_WEB3_FORM_API_KEY;
+
+const DEFAULT_API_BASE = Platform.OS === 'android'
+    ? 'http://10.0.2.2:3000'
+    : 'http://localhost:3000';
+
+function normalizeApiBase(rawBase: string): string {
+    return rawBase
+        .replace(/\/+$/, '')
+        .replace(/\/api$/i, '');
+}
+
+const API_BASE = normalizeApiBase(process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_BASE);
+
+const INITIAL_FORM: ContactForm = {
+    name: '',
+    email: '',
+    subject: '',
+    message: '',
+};
+
+function validateForm(form: ContactForm): string | null {
+    if (!form.name.trim()) return 'Please enter your name.';
+    if (!form.email.trim()) return 'Please enter your email.';
+    if (!EMAIL_RE.test(form.email.trim())) return 'Please enter a valid email address.';
+    if (!form.subject.trim()) return 'Please enter a subject.';
+    if (!form.message.trim()) return 'Please enter a message.';
+    if (form.message.trim().length < 10) return 'Your message is too short.';
+    return null;
+}
+
+async function submitContactMessage(data: ContactForm) {
+    if (WEB3FORMS_ACCESS_KEY) {
+        const formData = new FormData();
+        formData.append('access_key', WEB3FORMS_ACCESS_KEY);
+        formData.append('name', data.name);
+        formData.append('email', data.email);
+        formData.append('subject', data.subject);
+        formData.append('message', data.message);
+
+        const web3Res = await fetch(WEB3FORMS_URL, {
+            method: 'POST',
+            body: formData,
+        });
+
+        const web3Body = await web3Res.json().catch(() => ({}));
+        if (web3Res.ok && web3Body?.success !== false) {
+            return web3Body;
+        }
+
+        const message = String(web3Body?.message || web3Body?.error || '').toLowerCase();
+        const methodNotAllowed = message.includes('method is not allowed');
+        if (!methodNotAllowed) {
+            throw new Error(web3Body?.message || web3Body?.error || `Contact request failed (${web3Res.status})`);
+        }
+    }
+
+    const apiRes = await fetch(`${API_BASE}/api/contact`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+    });
+
+    const apiBody = await apiRes.json().catch(() => ({}));
+    if (!apiRes.ok) {
+        throw new Error(apiBody?.error || apiBody?.message || `API error ${apiRes.status}`);
+    }
+
+    return apiBody;
+}
+
+export default function ContactUsPage({ onNavigate }: Props) {
+    const [form, setForm] = useState<ContactForm>(INITIAL_FORM);
+    const [isSending, setIsSending] = useState(false);
+    const topPad = Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 0;
+
+    const messageLength = useMemo(() => form.message.trim().length, [form.message]);
+
+    const setField = (field: keyof ContactForm, value: string) => {
+        setForm((prev) => ({ ...prev, [field]: value }));
+    };
+
+    const handleSend = async () => {
+        if (isSending) return;
+
+        const error = validateForm(form);
+        if (error) {
+            Alert.alert('Missing info', error);
+            return;
+        }
+
+        try {
+            setIsSending(true);
+            await submitContactMessage({
+                name: form.name.trim(),
+                email: form.email.trim(),
+                subject: form.subject.trim(),
+                message: form.message.trim(),
+            });
+
+            setForm(INITIAL_FORM);
+            Alert.alert('Message sent', 'Thanks for contacting us. We will get back to you soon.');
+        } catch (err: any) {
+            Alert.alert('Send failed', err?.message || 'We could not send your message right now.');
+        } finally {
+            setIsSending(false);
         }
     };
 
     return (
         <SafeAreaView style={styles.root}>
-            <View style={[styles.header, { paddingTop: 12 + topPad }]}>
+            <View style={[styles.header, { paddingTop: 12 + topPad }]}> 
                 <View style={styles.headerRow}>
                     <TouchableOpacity
                         onPress={() => onNavigate?.('home')}
@@ -36,77 +149,128 @@ export default function ContactUsPage({ onNavigate }: Props) {
                         accessibilityRole="button"
                         accessibilityLabel="Back"
                     >
-                        <ArrowLeft size={20} color="#111" />
+                        <ArrowLeft size={20} color="#111827" />
                     </TouchableOpacity>
-                    <Text style={styles.title}>Contact Us</Text>
+                    <View style={styles.headerTextWrap}>
+                        <Text style={styles.title}>Contact Us</Text>
+                        <Text style={styles.subtitle}>Questions, bugs, or feedback, send us a note.</Text>
+                    </View>
                 </View>
             </View>
 
-            <View style={styles.container}>
-                <TextInput
-                    style={styles.input}
-                    placeholder="Your Name"
-                    value={name}
-                    onChangeText={setName}
-                    placeholderTextColor="#999"
-                />
-                <TextInput
-                    style={styles.input}
-                    placeholder="Contact Email"
-                    value={email}
-                    onChangeText={setEmail}
-                    placeholderTextColor="#999"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                />
-                <TextInput
-                    style={styles.subject}
-                    placeholder="Subject"
-                    value={subject}
-                    onChangeText={setSubject}
-                    placeholderTextColor="#999"
-                />
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                style={styles.flex}
+            >
+                <ScrollView
+                    contentContainerStyle={styles.container}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                >
+                    <View style={styles.fieldWrap}>
+                        <View style={styles.labelRow}>
+                            <User size={16} color="#6B7280" />
+                            <Text style={styles.label}>Name</Text>
+                        </View>
+                        <TextInput
+                            style={styles.input}
+                            placeholder="Your name"
+                            value={form.name}
+                            onChangeText={(v) => setField('name', v)}
+                            placeholderTextColor="#9CA3AF"
+                            returnKeyType="next"
+                        />
+                    </View>
 
-                <TextInput
-                    style={styles.message}
-                    placeholder="Type your message here..."
-                    value={message}
-                    onChangeText={setMessage}
-                    multiline
-                    numberOfLines={8}
-                    placeholderTextColor="#999"
-                    textAlignVertical="top"
-                />
+                    <View style={styles.fieldWrap}>
+                        <View style={styles.labelRow}>
+                            <Mail size={16} color="#6B7280" />
+                            <Text style={styles.label}>Email</Text>
+                        </View>
+                        <TextInput
+                            style={styles.input}
+                            placeholder="you@example.com"
+                            value={form.email}
+                            onChangeText={(v) => setField('email', v)}
+                            placeholderTextColor="#9CA3AF"
+                            keyboardType="email-address"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            returnKeyType="next"
+                        />
+                    </View>
 
-                <TouchableOpacity style={styles.sendButton} onPress={handleSend}>
-                    <Text style={styles.sendButtonText}>Send</Text>
-                </TouchableOpacity>
-            </View>
+                    <View style={styles.fieldWrap}>
+                        <View style={styles.labelRow}>
+                            <MessageSquare size={16} color="#6B7280" />
+                            <Text style={styles.label}>Subject</Text>
+                        </View>
+                        <TextInput
+                            style={styles.input}
+                            placeholder="How can we help?"
+                            value={form.subject}
+                            onChangeText={(v) => setField('subject', v)}
+                            placeholderTextColor="#9CA3AF"
+                            returnKeyType="next"
+                        />
+                    </View>
+
+                    <View style={styles.fieldWrap}>
+                        <View style={styles.messageHeaderRow}>
+                            <View style={styles.labelRow}>
+                                <Send size={16} color="#6B7280" />
+                                <Text style={styles.label}>Message</Text>
+                            </View>
+                            <Text style={styles.counter}>{messageLength}/5000</Text>
+                        </View>
+                        <TextInput
+                            style={styles.message}
+                            placeholder="Tell us what happened and what you expected..."
+                            value={form.message}
+                            onChangeText={(v) => setField('message', v)}
+                            multiline
+                            numberOfLines={8}
+                            placeholderTextColor="#9CA3AF"
+                            textAlignVertical="top"
+                            maxLength={5000}
+                        />
+                    </View>
+
+                    <TouchableOpacity
+                        style={[styles.sendButton, isSending && styles.sendButtonDisabled]}
+                        onPress={handleSend}
+                        disabled={isSending}
+                    >
+                        <Text style={styles.sendButtonText}>{isSending ? 'Sending...' : 'Send Message'}</Text>
+                    </TouchableOpacity>
+                </ScrollView>
+            </KeyboardAvoidingView>
         </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
+    flex: {
+        flex: 1,
+    },
     root: {
         flex: 1,
-        backgroundColor: '#f5f5f5',
+        backgroundColor: '#F8FAFC',
     },
     header: {
-        backgroundColor: '#fff',
+        backgroundColor: '#FFFFFF',
         borderBottomWidth: 1,
         borderBottomColor: '#E5E7EB',
-        paddingHorizontal: 21,
+        paddingHorizontal: 18,
         paddingBottom: 12,
-    },
-    container: {
-        flex: 1,
-        padding: 20,
-        backgroundColor: '#f5f5f5',
     },
     headerRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 10,
+        gap: 12,
+    },
+    headerTextWrap: {
+        flex: 1,
     },
     backBtn: {
         width: 40,
@@ -119,45 +283,76 @@ const styles = StyleSheet.create({
     title: {
         fontSize: 20,
         fontWeight: '900',
-        color: '#333',
+        color: '#111827',
+    },
+    subtitle: {
+        marginTop: 2,
+        fontSize: 12,
+        color: '#6B7280',
+    },
+    container: {
+        padding: 18,
+        paddingBottom: 28,
+    },
+    fieldWrap: {
+        marginBottom: 14,
+    },
+    labelRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginBottom: 8,
+    },
+    messageHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 8,
+    },
+    label: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#374151',
+    },
+    counter: {
+        fontSize: 12,
+        color: '#6B7280',
     },
     input: {
-        backgroundColor: '#fff',
+        backgroundColor: '#FFFFFF',
         borderWidth: 1,
-        borderColor: '#ddd',
-        borderRadius: 8,
-        padding: 12,
-        marginBottom: 15,
+        borderColor: '#D1D5DB',
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 11,
         fontSize: 16,
-    },
-    subject: {
-        backgroundColor: '#fff',
-        borderWidth: 1,
-        borderColor: '#ddd',
-        borderRadius: 8,
-        padding: 12,
-        marginBottom: 15,
-        fontSize: 16,
+        color: '#111827',
     },
     message: {
-        backgroundColor: '#fff',
+        backgroundColor: '#FFFFFF',
         borderWidth: 1,
-        borderColor: '#ddd',
-        borderRadius: 8,
-        padding: 12,
-        marginBottom: 20,
+        borderColor: '#D1D5DB',
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 11,
+        minHeight: 170,
         fontSize: 16,
-        flexGrow: 1,
+        color: '#111827',
     },
     sendButton: {
-        backgroundColor: '#007AFF',
-        padding: 15,
-        borderRadius: 8,
+        marginTop: 6,
+        backgroundColor: '#0EA5E9',
+        paddingVertical: 14,
+        borderRadius: 10,
         alignItems: 'center',
+        justifyContent: 'center',
+    },
+    sendButtonDisabled: {
+        opacity: 0.65,
     },
     sendButtonText: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: 'bold',
+        color: '#FFFFFF',
+        fontSize: 15,
+        fontWeight: '800',
     },
 });
