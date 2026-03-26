@@ -202,7 +202,7 @@ export function FriendProfileScreen({
           name: userData?.displayName || "",
           username: userData?.username || "",
           bio: userData?.bio || bios[hash % bios.length],
-          avatar: userData?.avatar || userData?.photoURL || getAvatarWithFallback(friendName),
+          avatar: userData?.avatarDataUrl || userData?.avatar || userData?.photoURL || getAvatarWithFallback(friendName),
           followerUids: userData?.followerCount ?? [],
           followingUids: userData?.followingCount ?? [],
         });
