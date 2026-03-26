@@ -9,6 +9,7 @@ const reviewsRoutes = require("../routes/reviews");
 const leaderboardRoutes = require("../routes/leaderboard");
 const bookingsRoutes = require("../routes/bookings");
 const messagesRoutes = require("../routes/messages");
+const contactRoutes = require("../routes/contact");
 
 const app = express();
 
@@ -29,6 +30,8 @@ app.use("/api/reviews", reviewsRoutes);    // Reviews + friend reviews
 app.use("/api/leaderboard", leaderboardRoutes); // Points leaderboard
 app.use("/api/bookings", bookingsRoutes);  // Ticket bookings
 app.use("/api/messages", messagesRoutes);  // Conversations + messages
+app.use("/api/contact", contactRoutes);    // Contact form email
+app.use("/contact", contactRoutes);        // Legacy/mobile fallback
 
 // ── 404 catch-all ──
 app.use((_req, res) => {
