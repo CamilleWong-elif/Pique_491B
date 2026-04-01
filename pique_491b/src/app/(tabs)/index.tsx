@@ -20,6 +20,7 @@ import { TermsConditionsScreen } from '../screens/TermsConditionsPage';
 import { EventCard } from '@/components/EventCard';
 import { NavigationBar } from '@/components/NavigationBar';
 import { EventDetailScreen } from '../screens/EventDetailPage';
+import { LeaveReviewScreen } from '../screens/LeaveReviewPage';
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
@@ -40,7 +41,7 @@ export default function App() {
       throw new Error(`handleNavigate received an invalid page: ${JSON.stringify(page)}`);
     }
     if (page === 'event-posted' && param) setPostedEventName(param);
-    if (page === 'event' && param) setSelectedEventId(param);
+    if ((page === 'event' || page === 'review') && param) setSelectedEventId(param);
     if (page === 'friendProfile') {
       const friendName = options?.friendName || param || '';
       setSelectedFriendName(friendName);
@@ -145,6 +146,13 @@ export default function App() {
             onNavigate={handleNavigate}
           />
         )}
+        {!isLoading && isAuthenticated && currentPage === 'review' && !!selectedEventId && (
+          <LeaveReviewScreen
+            event={{ id: selectedEventId, imageUrl: '', businessName: '', location: '' }}
+            onBack={() => handleNavigate('event', selectedEventId)}
+            onReviewPosted={() => handleNavigate('event', selectedEventId)}
+          />
+        )}
         {!isLoading && isAuthenticated && currentPage === 'event-posted' && (
           <EventPostedPage eventName={postedEventName} onNavigate={handleNavigate} />
         )}
@@ -152,7 +160,7 @@ export default function App() {
           <FriendProfileScreen
             friendName={selectedFriendName}
             onNavigate={handleNavigate}
-            onBack={() => handleNavigate('home')}
+            onBack={() => handleNavigate('leaderboard')}
             onOpenMessages={() => handleNavigate('messages')}
             unreadMessageCount={0}
             mockEvents={[]}

@@ -15,6 +15,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import { useAuth } from "@/context/AuthContext";
 import {
   Heart,
   MessageCircle,
@@ -71,6 +72,7 @@ export function SocialActivityCard({
   onPostComment,
   onPostReply,
 }: Props) {
+  const { profile } = useAuth();
   const [isLiked, setIsLiked] = useState<boolean>(!!activity.isLiked);
   const [isSaved, setIsSaved] = useState<boolean>(!!activity.isSaved);
   const [localLikes, setLocalLikes] = useState<number>(activity.likes || 0);
@@ -452,11 +454,13 @@ export function SocialActivityCard({
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View style={styles.commentInputRow}>
             <View style={styles.youAvatar}>
-              {activity.userAvatar ? (
-                <Image source={{ uri: activity.userAvatar }} style={styles.youAvatarImg} />
+              {profile?.photoURL ? (
+                <Image source={{ uri: profile.photoURL }} style={styles.youAvatarImg} />
               ) : (
                 <View style={styles.youAvatarFallback}>
-                  <Text style={styles.youAvatarText}>{activity.userName.slice(0,2).toUpperCase()}</Text>
+                  <Text style={styles.youAvatarText}>
+                    {(profile?.displayName || "?").slice(0, 2).toUpperCase()}
+                  </Text>
                 </View>
               )}
             </View>
