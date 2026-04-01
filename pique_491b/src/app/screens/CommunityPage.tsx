@@ -1,4 +1,5 @@
-import { apiFollowUser, apiSearchUsers, apiUnfollowUser } from '@/api';
+import { apiFollowUser, apiGetFriendReviews, apiGetReviewComments, apiGetReviews, apiPostReviewComment, apiSearchUsers, apiToggleReviewLike, apiUnfollowUser } from '@/api';
+import { SocialActivity, SocialActivityCard } from '@/components/SocialActivityCard';
 import { NavigationBar } from '@/components/NavigationBar';
 import { useAuth } from '@/context/AuthContext';
 import { auth } from '@/firebase';
@@ -33,6 +34,9 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [friendReviews, setFriendReviews] = useState<SocialActivity[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+
   useEffect(() => {
     setFollowingSet(new Set(profile?.followingCount ?? []));
   }, [profile?.followingCount]);
@@ -49,6 +53,47 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
       }
     } catch (err) {
       console.error('Follow toggle error:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'reviews') return;
+    setReviewsLoading(true);
+    apiGetFriendReviews()
+      .then((data: any[]) => {
+        const activities: SocialActivity[] = data.map((r) => ({
+          id: r.id,
+          action: 'rated' as const,
+          userName: r.friendName || 'Anonymous',
+          userAvatar: r.friendAvatar || undefined,
+          eventName: r.eventName || '',
+          rating: r.rating,
+          reviewText: r.comment || '',
+          reviewImages: r.images || [],
+          timestamp: r.createdAt,
+          isLiked: (r.likedBy || []).includes(auth.currentUser?.uid ?? ''),
+          likes: r.likes || 0,
+          comments: [],
+        }));
+        setFriendReviews(activities);
+      })
+      .catch((err: any) => console.error('Failed to fetch friend reviews:', err))
+      .finally(() => setReviewsLoading(false));
+  }, [activeTab]);
+
+  const handleReviewLike = async (activityId: string, liked: boolean) => {
+    try {
+      await apiToggleReviewLike(activityId);
+    } catch (err) {
+      console.error('Failed to toggle review like:', err);
+    }
+  };
+
+  const handleReviewComment = async (activityId: string, text: string) => {
+    try {
+      await apiPostReviewComment(activityId, text);
+    } catch (err) {
+      console.error('Failed to post comment:', err);
     }
   };
 
@@ -211,7 +256,9 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
           <View style={styles.tabContent}>
             <Text style={styles.subtext}>Events your friends have attended and rated</Text>
 
-            {mockFriendRatedEvents.length === 0 && (
+            {reviewsLoading && <ActivityIndicator style={{ marginTop: 24 }} color="#3b82f6" />}
+
+            {!reviewsLoading && friendReviews.length === 0 && (
               <View style={styles.emptyContainer}>
                 <Text style={styles.emptyText}>No rated events yet</Text>
                 <Text style={styles.emptySubtext}>
@@ -220,44 +267,16 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
               </View>
             )}
 
-            {mockFriendRatedEvents.map((ratedEvent: any) => {
-              const event = mockEvents.find((e: any) => e.id === ratedEvent.eventId);
-              if (!event) return null;
-              const colors = getRatingColor(ratedEvent.rating);
-
-              return (
-                <TouchableOpacity
-                  key={ratedEvent.id}
-                  style={styles.reviewRow}
-                  onPress={() => onNavigate('event', ratedEvent.eventId)}
-                >
-                  <TouchableOpacity
-                    onPress={() => onNavigate('friendProfile', undefined, { friendName: ratedEvent.friendName })}
-                  >
-                    <Image source={{ uri: ratedEvent.friendAvatar }} style={styles.friendAvatar} />
-                  </TouchableOpacity>
-
-                  <View style={styles.reviewInfo}>
-                    <Text style={styles.reviewTitle} numberOfLines={1}>
-                      <Text style={styles.reviewFriendName}>{ratedEvent.friendName}</Text>
-                      <Text> rated </Text>
-                      <Text>{ratedEvent.eventName}</Text>
-                    </Text>
-                    {ratedEvent.reviewText && (
-                      <Text style={styles.reviewText} numberOfLines={1}>
-                        {ratedEvent.reviewText}
-                      </Text>
-                    )}
-                  </View>
-
-                  <View style={[styles.ratingBadge, { backgroundColor: colors.bg, borderColor: colors.border }]}>
-                    <Text style={[styles.ratingBadgeText, { color: colors.text }]}>
-                      {ratedEvent.rating.toFixed(1)}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+            {!reviewsLoading && friendReviews.map((activity) => (
+              <SocialActivityCard
+                key={activity.id}
+                activity={activity}
+                onClick={() => onNavigate('event', activity.eventName)}
+                onFriendClick={(friendName) => onNavigate('friendProfile', undefined, { friendName })}
+                onLike={handleReviewLike}
+                onPostComment={handleReviewComment}
+              />
+            ))}
           </View>
         )}
         {/* Find People Tab */}
