@@ -204,6 +204,7 @@ router.get("/:id/following", authenticate, async (req, res) => {
 router.post("/:id/follow", authenticate, async (req, res) => {
   try {
     const targetId = req.params.id;
+    const currentUid = req.user.uid;
     if (targetId === req.user.uid) {
       return res.status(400).json({ error: "Cannot follow yourself" });
     }
@@ -213,11 +214,23 @@ router.post("/:id/follow", authenticate, async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const myRef = db.collection("users").doc(req.user.uid);
+    const myRef = db.collection("users").doc(currentUid);
     const theirRef = db.collection("users").doc(targetId);
+    const myFriendRef = myRef.collection("friends").doc(targetId);
+    const batch = db.batch();
 
-    await myRef.update({ followingCount: FieldValue.arrayUnion(targetId) });
-    await theirRef.update({ followerCount: FieldValue.arrayUnion(req.user.uid) });
+    batch.update(myRef, { followingCount: FieldValue.arrayUnion(targetId) });
+    batch.update(theirRef, { followerCount: FieldValue.arrayUnion(currentUid) });
+    // Keep friends subcollection in sync with follow state.
+    batch.set(
+      myFriendRef,
+      {
+        uid: targetId,
+        createdAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+    await batch.commit();
 
     return res.json({ followed: true });
   } catch (err) {
@@ -232,12 +245,17 @@ router.post("/:id/follow", authenticate, async (req, res) => {
 router.post("/:id/unfollow", authenticate, async (req, res) => {
   try {
     const targetId = req.params.id;
+    const currentUid = req.user.uid;
 
-    const myRef = db.collection("users").doc(req.user.uid);
+    const myRef = db.collection("users").doc(currentUid);
     const theirRef = db.collection("users").doc(targetId);
+    const myFriendRef = myRef.collection("friends").doc(targetId);
+    const batch = db.batch();
 
-    await myRef.update({ followingCount: FieldValue.arrayRemove(targetId) });
-    await theirRef.update({ followerCount: FieldValue.arrayRemove(req.user.uid) });
+    batch.update(myRef, { followingCount: FieldValue.arrayRemove(targetId) });
+    batch.update(theirRef, { followerCount: FieldValue.arrayRemove(currentUid) });
+    batch.delete(myFriendRef);
+    await batch.commit();
 
     return res.json({ unfollowed: true });
   } catch (err) {
