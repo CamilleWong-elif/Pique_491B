@@ -141,7 +141,11 @@ export function LeaderboardScreen({
             accessibilityRole="button"
             accessibilityLabel={`Open ${item.friendName}'s profile`}
           >
-            <Image source={{ uri: item.friendAvatar }} style={styles.avatarImg} />
+            {item.friendAvatar ? (
+              <Image source={{ uri: item.friendAvatar }} style={styles.avatarImg} />
+            ) : (
+              <View style={[styles.avatarImg, { backgroundColor: '#d1d5db' }]} />
+            )}
           </TouchableOpacity>
 
           {/* Event Info */}
