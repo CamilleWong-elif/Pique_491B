@@ -61,16 +61,28 @@ router.post("/:userId/follow", authenticate, async (req, res) => {
   try {
     const { FieldValue } = admin.firestore;
     const batch = db.batch();
+    const myRef = db.collection("users").doc(currentUid);
+    const targetRef = db.collection("users").doc(targetUid);
+    const myFriendRef = myRef.collection("friends").doc(targetUid);
     // Add targetUid to current user's followingCount array
     batch.set(
-      db.collection("users").doc(currentUid),
+      myRef,
       { followingCount: FieldValue.arrayUnion(targetUid) },
       { merge: true }
     );
     // Add currentUid to target user's followerCount array
     batch.set(
-      db.collection("users").doc(targetUid),
+      targetRef,
       { followerCount: FieldValue.arrayUnion(currentUid) },
+      { merge: true }
+    );
+    // Keep friends subcollection in sync with follow state.
+    batch.set(
+      myFriendRef,
+      {
+        uid: targetUid,
+        createdAt: new Date().toISOString(),
+      },
       { merge: true }
     );
     await batch.commit();
@@ -91,16 +103,20 @@ router.post("/:userId/unfollow", authenticate, async (req, res) => {
   try {
     const { FieldValue } = admin.firestore;
     const batch = db.batch();
+    const myRef = db.collection("users").doc(currentUid);
+    const targetRef = db.collection("users").doc(targetUid);
+    const myFriendRef = myRef.collection("friends").doc(targetUid);
     batch.set(
-      db.collection("users").doc(currentUid),
+      myRef,
       { followingCount: FieldValue.arrayRemove(targetUid) },
       { merge: true }
     );
     batch.set(
-      db.collection("users").doc(targetUid),
+      targetRef,
       { followerCount: FieldValue.arrayRemove(currentUid) },
       { merge: true }
     );
+    batch.delete(myFriendRef);
     await batch.commit();
     return res.json({ success: true });
   } catch (err) {
