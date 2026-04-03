@@ -114,15 +114,14 @@ router.get("/friends", authenticate, async (req, res) => {
       return res.json([]);
     }
 
-    // Firestore 'in' queries support max 30 items
+    // Firestore 'in' queries support max 30 items.
+    // Avoid `in + orderBy` here to prevent composite-index failures.
     const allReviews = [];
     for (let i = 0; i < friendIds.length; i += 30) {
       const batch = friendIds.slice(i, i + 30);
       const snap = await db
         .collection("reviews")
         .where("author", "in", batch)
-        .orderBy("createdAt", "desc")
-        .limit(50)
         .get();
 
       for (const doc of snap.docs) {
@@ -136,7 +135,7 @@ router.get("/friends", authenticate, async (req, res) => {
       return (b.createdAt || "").localeCompare(a.createdAt || "");
     });
 
-    return res.json(allReviews);
+    return res.json(allReviews.slice(0, 50));
   } catch (err) {
     console.error("GET /api/reviews/friends error:", err);
     return res.status(500).json({ error: "Failed to fetch friend reviews" });
