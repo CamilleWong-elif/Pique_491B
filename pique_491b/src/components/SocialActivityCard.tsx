@@ -14,12 +14,14 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from "react-native";
 import { useAuth } from "@/context/AuthContext";
 import {
   Heart,
   MessageCircle,
   Bookmark,
+  Trash2,
   X,
   ChevronLeft,
   ChevronRight,
@@ -39,6 +41,7 @@ export type SocialActivity = {
   action: "going" | "interested" | "rated";
   userName: string;
   userAvatar?: string;
+  authorId?: string;
   eventName?: string;
   eventLocation?: string;
   rating?: number;
@@ -59,6 +62,7 @@ type Props = {
   onSave?: (activityId: string, saved: boolean) => void;
   onPostComment?: (activityId: string, text: string) => void;
   onPostReply?: (activityId: string, commentId: string, text: string) => void;
+  onDelete?: (activityId: string) => void;
 };
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -71,8 +75,11 @@ export function SocialActivityCard({
   onSave,
   onPostComment,
   onPostReply,
+  onDelete,
 }: Props) {
   const { profile } = useAuth();
+  const { user } = useAuth();
+  const isOwner = !!activity.authorId && activity.authorId === user?.uid;
   const [isLiked, setIsLiked] = useState<boolean>(!!activity.isLiked);
   const [isSaved, setIsSaved] = useState<boolean>(!!activity.isSaved);
   const [localLikes, setLocalLikes] = useState<number>(activity.likes || 0);
@@ -381,6 +388,23 @@ export function SocialActivityCard({
           <TouchableOpacity onPress={toggleSave} style={styles.actionBtn}>
             <Bookmark size={20} color={isSaved ? "#111827" : "#374151"} />
           </TouchableOpacity>
+          {isOwner && (
+            <TouchableOpacity
+              onPress={() =>
+                Alert.alert(
+                  "Delete Review",
+                  "Are you sure you want to delete this review?",
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Delete", style: "destructive", onPress: () => onDelete?.(activity.id) },
+                  ]
+                )
+              }
+              style={styles.actionBtn}
+            >
+              <Trash2 size={20} color="#ef4444" />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 

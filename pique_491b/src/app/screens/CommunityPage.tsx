@@ -1,4 +1,4 @@
-import { apiFollowUser, apiGetFriendReviews, apiGetReviewComments, apiGetReviews, apiPostReviewComment, apiSearchUsers, apiToggleReviewLike, apiUnfollowUser } from '@/api';
+import { apiDeleteReview, apiFollowUser, apiGetFriendReviews, apiGetReviewComments, apiGetReviews, apiPostReviewComment, apiSearchUsers, apiToggleReviewLike, apiUnfollowUser } from '@/api';
 import { SocialActivity, SocialActivityCard } from '@/components/SocialActivityCard';
 import { NavigationBar } from '@/components/NavigationBar';
 import { useAuth } from '@/context/AuthContext';
@@ -66,6 +66,7 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
           action: 'rated' as const,
           userName: r.friendName || 'Anonymous',
           userAvatar: r.friendAvatar || undefined,
+          authorId: r.author,
           eventName: r.eventName || '',
           rating: r.rating,
           reviewText: r.comment || '',
@@ -86,6 +87,15 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
       await apiToggleReviewLike(activityId);
     } catch (err) {
       console.error('Failed to toggle review like:', err);
+    }
+  };
+
+  const handleReviewDelete = async (activityId: string) => {
+    try {
+      await apiDeleteReview(activityId);
+      setFriendReviews((prev) => prev.filter((a) => a.id !== activityId));
+    } catch (err) {
+      console.error('Failed to delete review:', err);
     }
   };
 
@@ -235,7 +245,11 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
                   </View>
 
                   {/* Avatar */}
-                  <Image source={{ uri: user.avatar }} style={styles.avatar} />
+                  {user.avatar ? (
+                    <Image source={{ uri: user.avatar }} style={styles.avatar} />
+                  ) : (
+                    <View style={[styles.avatar, { backgroundColor: '#d1d5db' }]} />
+                  )}
 
                   {/* Name */}
                   <Text style={styles.userName}>{user.name}</Text>
@@ -275,6 +289,7 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
                 onFriendClick={(friendName) => onNavigate('friendProfile', undefined, { friendName })}
                 onLike={handleReviewLike}
                 onPostComment={handleReviewComment}
+                onDelete={handleReviewDelete}
               />
             ))}
           </View>

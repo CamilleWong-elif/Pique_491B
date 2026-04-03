@@ -27,7 +27,7 @@ import {
   Navigation,
   Bookmark,
 } from "lucide-react-native";
-import { apiGetEvent, apiCreateBooking } from '@/api';
+import { apiGetEvent, apiCreateBooking, apiGetReviews } from '@/api';
 import { useAuth } from '@/context/AuthContext';
 
 // ----- Types (adjust to your app) -----
@@ -103,6 +103,7 @@ export function EventDetailScreen({
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [booking, setBooking] = useState(false);
+  const [reviews, setReviews] = useState<{ id: string; author: string; friendName?: string; rating: number; comment: string; createdAt?: string }[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,9 +112,13 @@ export function EventDetailScreen({
 
     (async () => {
       try {
-        const data = await apiGetEvent(eventId);
+        const [data, reviewData] = await Promise.all([
+          apiGetEvent(eventId),
+          apiGetReviews(eventId).catch(() => []),
+        ]);
         if (cancelled) return;
         setEvent(mapFirestoreToEvent(data.id, data));
+        setReviews(reviewData ?? []);
       } catch (err: any) {
         if (!cancelled) setFetchError(err?.message ?? "Failed to load event.");
       } finally {
@@ -125,7 +130,12 @@ export function EventDetailScreen({
   }, [eventId]);
 
   const allImages = useMemo(
-    () => event ? [{ url: event.imageUrl, userName: "Event Creator" }, ...(event.userImages || [])] : [],
+    () => event
+      ? [
+          ...(event.imageUrl ? [{ url: event.imageUrl, userName: "Event Creator" }] : []),
+          ...(event.userImages || []),
+        ]
+      : [],
     [event]
   );
 
@@ -235,12 +245,6 @@ export function EventDetailScreen({
       </Text>
     ));
 
-  const reviews = [
-    { id: 1, author: "Sarah M.", rating: 5, comment: "Amazing experience! The staff was friendly and the facility was clean.", date: "2 days ago" },
-    { id: 2, author: "Mike R.", rating: 4, comment: "Great place, would definitely recommend to friends.", date: "1 week ago" },
-    { id: 3, author: "Emma L.", rating: 5, comment: "Had such a fun time! Perfect for a weekend activity.", date: "2 weeks ago" },
-    { id: 4, author: "John D.", rating: 4, comment: "Really enjoyed it. Will come back again!", date: "3 weeks ago" },
-  ];
 
   const handleBookClick = async () => {
     if (booking) return;
@@ -524,20 +528,28 @@ export function EventDetailScreen({
             <Text style={styles.sectionTitle}>Reviews</Text>
             <View style={styles.hr} />
             <View style={{ gap: 12 }}>
-              {reviews.map((r) => (
-                <View key={r.id} style={styles.reviewCard}>
-                  <View style={styles.reviewTop}>
-                    <Text style={styles.reviewAuthor}>{r.author}</Text>
-                    <View style={styles.reviewStars}>
-                      {Array.from({ length: r.rating }).map((_, i) => (
-                        <Star key={i} size={12} color="#FACC15" fill="#FACC15" />
-                      ))}
+              {reviews.length === 0 ? (
+                <Text style={styles.bodyText}>No reviews yet. Be the first!</Text>
+              ) : (
+                reviews.map((r) => (
+                  <View key={r.id} style={styles.reviewCard}>
+                    <View style={styles.reviewTop}>
+                      <Text style={styles.reviewAuthor}>{r.friendName || r.author}</Text>
+                      <View style={styles.reviewStars}>
+                        {Array.from({ length: r.rating }).map((_, i) => (
+                          <Star key={i} size={12} color="#FACC15" fill="#FACC15" />
+                        ))}
+                      </View>
                     </View>
+                    <Text style={styles.reviewComment}>{r.comment}</Text>
+                    {!!r.createdAt && (
+                      <Text style={styles.reviewDate}>
+                        {new Date(r.createdAt).toLocaleDateString()}
+                      </Text>
+                    )}
                   </View>
-                  <Text style={styles.reviewComment}>{r.comment}</Text>
-                  <Text style={styles.reviewDate}>{r.date}</Text>
-                </View>
-              ))}
+                ))
+              )}
             </View>
           </View>
 

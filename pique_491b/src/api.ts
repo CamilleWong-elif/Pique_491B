@@ -124,6 +124,9 @@ export const apiPostReview = (data: { eventId: string; rating: number; comment: 
 export const apiGetFriendReviews = () =>
   apiFetch('/api/reviews/friends');
 
+export const apiDeleteReview = (reviewId: string) =>
+  apiFetch(`/api/reviews/${reviewId}`, { method: 'DELETE' });
+
 export const apiToggleReviewLike = (reviewId: string) =>
   apiFetch(`/api/reviews/${reviewId}/like`, { method: 'POST' });
 
