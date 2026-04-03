@@ -13,7 +13,7 @@ import {
   StatusBar,
   Alert,
 } from "react-native";
-import { ArrowLeft, Star, Upload, X } from "lucide-react-native";
+import { ArrowLeft, CheckCircle, Star, Upload, X } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
 import { auth } from '@/firebase';
 import { apiPostReview } from '@/api';
@@ -41,6 +41,7 @@ export function LeaveReviewScreen({ event, onBack, onReviewPosted }: Props) {
   const [rating, setRating] = useState(0);
   const [reviewText, setReviewText] = useState("");
   const [media, setMedia] = useState<MediaItem[]>([]);
+  const [posted, setPosted] = useState(false);
 
   const ratingLabel = useMemo(() => {
     switch (rating) {
@@ -110,13 +111,28 @@ export function LeaveReviewScreen({ event, onBack, onReviewPosted }: Props) {
       rating,
       comment: reviewText,
     });
-    onReviewPosted();
+    setPosted(true);
   };
 
   const canPost = rating > 0 && reviewText.trim().length > 0;
 
   const topPad =
     Platform.OS === "android" ? (StatusBar.currentHeight || 0) : 0;
+
+  if (posted) {
+    return (
+      <SafeAreaView style={styles.root}>
+        <View style={styles.successContainer}>
+          <CheckCircle size={72} color="#22c55e" />
+          <Text style={styles.successTitle}>Review Posted!</Text>
+          <Text style={styles.successMsg}>Thanks for sharing your experience.</Text>
+          <TouchableOpacity style={styles.successBtn} onPress={onReviewPosted}>
+            <Text style={styles.successBtnText}>Back to Event</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.root}>
@@ -137,7 +153,11 @@ export function LeaveReviewScreen({ event, onBack, onReviewPosted }: Props) {
         {/* Event Info */}
         <View style={styles.sectionRow}>
           <View style={styles.eventRow}>
-            <Image source={{ uri: event.imageUrl }} style={styles.eventImg} />
+            {event.imageUrl ? (
+              <Image source={{ uri: event.imageUrl }} style={styles.eventImg} />
+            ) : (
+              <View style={[styles.eventImg, { backgroundColor: '#d1d5db' }]} />
+            )}
             <View style={{ flex: 1 }}>
               <Text style={styles.eventName}>{event.businessName}</Text>
               <Text style={styles.eventLoc}>{event.location}</Text>
@@ -378,6 +398,24 @@ const styles = StyleSheet.create({
   postText: { fontSize: 15, fontWeight: "700" },
   postTextOn: { color: "#fff" },
   postTextOff: { color: "#9CA3AF" },
+
+  successContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+    gap: 16,
+  },
+  successTitle: { fontSize: 24, fontWeight: "700", color: "#111" },
+  successMsg: { fontSize: 15, color: "#6B7280", textAlign: "center" },
+  successBtn: {
+    marginTop: 8,
+    backgroundColor: "#FF6B35",
+    paddingVertical: 14,
+    paddingHorizontal: 40,
+    borderRadius: 10,
+  },
+  successBtnText: { fontSize: 15, fontWeight: "700", color: "#fff" },
 });
 
 export default LeaveReviewScreen;

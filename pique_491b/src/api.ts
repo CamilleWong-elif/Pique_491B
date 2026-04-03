@@ -124,6 +124,18 @@ export const apiPostReview = (data: { eventId: string; rating: number; comment: 
 export const apiGetFriendReviews = () =>
   apiFetch('/api/reviews/friends');
 
+export const apiDeleteReview = (reviewId: string) =>
+  apiFetch(`/api/reviews/${reviewId}`, { method: 'DELETE' });
+
+export const apiToggleReviewLike = (reviewId: string) =>
+  apiFetch(`/api/reviews/${reviewId}/like`, { method: 'POST' });
+
+export const apiGetReviewComments = (reviewId: string) =>
+  apiFetch(`/api/reviews/${reviewId}/comments`);
+
+export const apiPostReviewComment = (reviewId: string, text: string) =>
+  apiFetch(`/api/reviews/${reviewId}/comments`, { method: 'POST', body: JSON.stringify({ text }) });
+
 // ── Leaderboard ──
 export const apiGetLeaderboard = (mode: 'friends' | 'global' = 'friends') =>
   apiFetch(`/api/leaderboard?mode=${mode}`);

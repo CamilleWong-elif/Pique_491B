@@ -314,6 +314,7 @@ export function FriendProfileScreen({
             {/* Header Background — same as ProfilePage */}
             <View style={styles.headerBg} />
 
+
             {/* Profile Info */}
             <View style={styles.profileSection}>
               <View style={styles.profileRow}>
@@ -568,6 +569,7 @@ const styles = StyleSheet.create({
 
   backBtn: {
     position: "absolute",
+    top: 16,
     left: 16,
     zIndex: 20,
     width: 40,
