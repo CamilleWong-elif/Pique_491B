@@ -109,8 +109,8 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) { setSearchResults([]); return; }
+    const q = searchQuery.trim().toLowerCase().replace(/^@/, '');
+    if (q.length < 2) { setSearchResults([]); return; }
 
     debounceRef.current = setTimeout(async () => {
       setSearching(true);
@@ -122,7 +122,7 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
       } finally {
         setSearching(false);
       }
-    }, 400);
+    }, 600);
   }, [searchQuery]);
 
   const getTrophyColor = (rank: number) => {
