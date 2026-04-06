@@ -477,15 +477,15 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
                 key={activity.id}
                 activity={activity}
                 onClick={() => onNavigate('event', activity.eventId || activity.eventName)}
-                onFriendClick={(friendName: string) =>
-                  onNavigate('friendProfile', undefined, { friendName: activity.authorId || friendName })
+                onFriendClick={(userIdOrUsername: string) =>
+                  onNavigate('friendProfile', undefined, { friendName: userIdOrUsername })
                 }
                 onLike={handleFeedReviewLike}
                 onPostComment={handleFeedReviewComment}
               />
             ))}
             {feedActivities.length === 0 && (
-              <Text style={styles.emptyFeedText}>No recent friend review activity yet.</Text>
+              <Text style={styles.emptyFeedText}>No review activity yet. Follow friends or leave a review on an event.</Text>
             )}
           </View>
         )}

@@ -1,4 +1,4 @@
-import { apiDeleteReview, apiFollowUser, apiGetFriendReviews, apiGetReviewComments, apiGetReviews, apiPostReviewComment, apiSearchUsers, apiToggleReviewLike, apiUnfollowUser } from '@/api';
+import { apiDeleteReview, apiFollowUser, apiGetFriendReviews, apiGetReviews, apiSearchUsers, apiUnfollowUser } from '@/api';
 import { SocialActivity, SocialActivityCard } from '@/components/SocialActivityCard';
 import { NavigationBar } from '@/components/NavigationBar';
 import { useAuth } from '@/context/AuthContext';
@@ -76,6 +76,7 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
           isLiked: (r.likedBy || []).includes(auth.currentUser?.uid ?? ''),
           likes: r.likes || 0,
           comments: [],
+          commentCountHint: Array.isArray(r.comments) ? r.comments.length : 0,
         }));
         setFriendReviews(activities);
       })
@@ -83,28 +84,12 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
       .finally(() => setReviewsLoading(false));
   }, [activeTab]);
 
-  const handleReviewLike = async (activityId: string, liked: boolean) => {
-    try {
-      await apiToggleReviewLike(activityId);
-    } catch (err) {
-      console.error('Failed to toggle review like:', err);
-    }
-  };
-
   const handleReviewDelete = async (activityId: string) => {
     try {
       await apiDeleteReview(activityId);
       setFriendReviews((prev) => prev.filter((a) => a.id !== activityId));
     } catch (err) {
       console.error('Failed to delete review:', err);
-    }
-  };
-
-  const handleReviewComment = async (activityId: string, text: string) => {
-    try {
-      await apiPostReviewComment(activityId, text);
-    } catch (err) {
-      console.error('Failed to post comment:', err);
     }
   };
 
@@ -287,11 +272,12 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
                 key={activity.id}
                 activity={activity}
                 onClick={() => onNavigate('event', activity.eventId || activity.eventName)}
-                onFriendClick={() => onNavigate('friendProfile', undefined, { friendName: activity.authorId || activity.userName })}
-                onLike={handleReviewLike}
-                onPostComment={handleReviewComment}
+                onFriendClick={(userIdOrUsername) =>
+                  onNavigate('friendProfile', undefined, { friendName: userIdOrUsername })
+                }
                 onDelete={handleReviewDelete}
                 compact
+                showEngagement={false}
               />
             ))}
           </View>

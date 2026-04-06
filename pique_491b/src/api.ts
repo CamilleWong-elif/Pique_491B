@@ -133,6 +133,11 @@ export const apiToggleReviewLike = (reviewId: string) =>
 export const apiGetReviewComments = (reviewId: string) =>
   apiFetch(`/api/reviews/${reviewId}/comments`);
 
+export type ReviewLiker = { userId: string; userName: string; userAvatar?: string | null };
+
+export const apiGetReviewLikes = (reviewId: string) =>
+  apiFetch(`/api/reviews/${reviewId}/likes`) as Promise<ReviewLiker[]>;
+
 export const apiPostReviewComment = (reviewId: string, text: string) =>
   apiFetch(`/api/reviews/${reviewId}/comments`, { method: 'POST', body: JSON.stringify({ text }) });
 

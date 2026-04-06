@@ -37,7 +37,8 @@ export type Event = {
   id: string;
   name: string;
   imageUrl: string;
-  userImages?: UserImage[];
+  /** Raw Firestore shapes: strings, or objects with url/uri and optional userName/name */
+  userImages?: unknown[];
   startDate?: string;
   endDate?: string;
   city: string;
@@ -69,6 +70,40 @@ function computeReviewStats(
   if (rated.length === 0) return { rating: 0, reviewCount: 0 };
   const avg = rated.reduce((sum, r) => sum + r.rating, 0) / rated.length;
   return { rating: Number(avg.toFixed(1)), reviewCount: rated.length };
+}
+
+/** Ensure userImages from Firestore always become { url, userName } (handles strings or partial objects). */
+function normalizeUserImages(raw: unknown): UserImage[] {
+  if (!Array.isArray(raw)) return [];
+  const out: UserImage[] = [];
+  for (const item of raw) {
+    if (typeof item === "string") {
+      const url = item.trim();
+      if (url) out.push({ url, userName: "Contributor" });
+      continue;
+    }
+    if (item && typeof item === "object") {
+      const o = item as Record<string, unknown>;
+      const urlRaw =
+        typeof o.url === "string"
+          ? o.url
+          : typeof o.uri === "string"
+            ? o.uri
+            : typeof o.src === "string"
+              ? o.src
+              : "";
+      const url = urlRaw.trim();
+      if (!url) continue;
+      const userName =
+        typeof o.userName === "string" && o.userName.trim()
+          ? o.userName.trim()
+          : typeof o.name === "string" && o.name.trim()
+            ? o.name.trim()
+            : "Contributor";
+      out.push({ url, userName });
+    }
+  }
+  return out;
 }
 
 /** Map a raw Firestore document to the local Event shape. */
@@ -154,15 +189,15 @@ export function EventDetailScreen({
     setIsBookmarked(liked.includes(eventId));
   }, [eventId, profile?.likedEvents]);
 
-  const allImages = useMemo(
-    () => event
-      ? [
-          ...(event.imageUrl ? [{ url: event.imageUrl, userName: "Event Creator" }] : []),
-          ...(event.userImages || []),
-        ]
-      : [],
-    [event]
-  );
+  const allImages = useMemo((): UserImage[] => {
+    if (!event) return [];
+    const primary = (event.imageUrl ?? "").trim();
+    const fromCreator: UserImage[] = primary
+      ? [{ url: primary, userName: "Event Creator" }]
+      : [];
+    const userImgs = normalizeUserImages(event.userImages);
+    return [...fromCreator, ...userImgs];
+  }, [event]);
 
   const [currentSlide, setCurrentSlide] = useState(0);
   const [galleryOpen, setGalleryOpen] = useState(false);
@@ -171,6 +206,21 @@ export function EventDetailScreen({
 
   const heroPagerRef = useRef<FlatList<{ url: string; userName: string }>>(null);
   const galleryPagerRef = useRef<FlatList<{ url: string; userName: string }>>(null);
+
+  useEffect(() => {
+    const n = allImages.length;
+    if (n === 0) {
+      setCurrentSlide(0);
+      setCurrentImageIndex(0);
+      return;
+    }
+    setCurrentSlide((s) => Math.min(s, n - 1));
+    setCurrentImageIndex((i) => Math.min(i, n - 1));
+  }, [allImages]);
+
+  useEffect(() => {
+    if (galleryOpen && allImages.length === 0) setGalleryOpen(false);
+  }, [galleryOpen, allImages.length]);
 
   // Auto-advance hero slideshow every 5 seconds (when multiple images & gallery not open)
   // Must be declared before any early returns to satisfy Rules of Hooks.
@@ -230,11 +280,12 @@ export function EventDetailScreen({
   };
 
   const openGallery = (index: number) => {
-    setCurrentImageIndex(index);
+    if (allImages.length === 0) return;
+    const safeIndex = Math.max(0, Math.min(index, allImages.length - 1));
+    setCurrentImageIndex(safeIndex);
     setGalleryOpen(true);
-    // wait a tick so FlatList has layout
     requestAnimationFrame(() => {
-      galleryPagerRef.current?.scrollToIndex({ index, animated: false });
+      galleryPagerRef.current?.scrollToIndex({ index: safeIndex, animated: false });
     });
   };
 
@@ -323,6 +374,11 @@ export function EventDetailScreen({
       ? (StatusBar.currentHeight || 0) + 12
       : 12;
 
+  const galleryActiveSlide =
+    allImages.length > 0
+      ? allImages[Math.min(currentImageIndex, allImages.length - 1)]
+      : undefined;
+
   return (
     <View style={styles.root}>
       {/* Gallery Overlay */}
@@ -363,10 +419,10 @@ export function EventDetailScreen({
           {/* Image area */}
           <Pressable style={styles.galleryBody} onPress={toggleBackdrop}>
             {/* counter on dark mode */}
-            {!whiteBackdrop && (
+            {!whiteBackdrop && allImages.length > 0 && (
               <View style={styles.counterPill}>
                 <Text style={styles.counterText}>
-                  {currentImageIndex + 1} / {allImages.length}
+                  {Math.min(currentImageIndex, allImages.length - 1) + 1} / {allImages.length}
                 </Text>
               </View>
             )}
@@ -433,19 +489,19 @@ export function EventDetailScreen({
           </Pressable>
 
           {/* Bottom info (only when white backdrop) */}
-          {whiteBackdrop && (
+          {whiteBackdrop && galleryActiveSlide ? (
             <View style={styles.galleryBottom}>
               <View style={styles.userRow}>
                 <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{initials(allImages[currentImageIndex].userName)}</Text>
+                  <Text style={styles.avatarText}>{initials(galleryActiveSlide.userName)}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.userName}>{allImages[currentImageIndex].userName}</Text>
+                  <Text style={styles.userName}>{galleryActiveSlide.userName}</Text>
                   <Text style={styles.userSub}>Posted to {event.name}</Text>
                 </View>
               </View>
             </View>
-          )}
+          ) : null}
         </SafeAreaView>
       </Modal>
 
@@ -457,25 +513,33 @@ export function EventDetailScreen({
       >
         {/* Hero */}
         <View style={styles.hero}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => openGallery(currentSlide)}>
-            <FlatList
-              ref={heroPagerRef}
-              data={allImages}
-              keyExtractor={(_, i) => `h-${i}`}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              onMomentumScrollEnd={onHeroScrollEnd}
-              renderItem={({ item }) => (
-                <Image source={{ uri: item.url }} style={styles.heroImage} resizeMode="cover" />
-              )}
-              getItemLayout={(_, index) => ({
-                length: SCREEN_W,
-                offset: SCREEN_W * index,
-                index,
-              })}
-            />
-          </Pressable>
+          {allImages.length === 0 ? (
+            <View style={styles.heroPlaceholder}>
+              <Text style={styles.heroPlaceholderText}>
+                {(event.name || "Event").slice(0, 2).toUpperCase()}
+              </Text>
+            </View>
+          ) : (
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => openGallery(currentSlide)}>
+              <FlatList
+                ref={heroPagerRef}
+                data={allImages}
+                keyExtractor={(_, i) => `h-${i}`}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onMomentumScrollEnd={onHeroScrollEnd}
+                renderItem={({ item }) => (
+                  <Image source={{ uri: item.url }} style={styles.heroImage} resizeMode="cover" />
+                )}
+                getItemLayout={(_, index) => ({
+                  length: SCREEN_W,
+                  offset: SCREEN_W * index,
+                  index,
+                })}
+              />
+            </Pressable>
+          )}
 
           {/* Indicators */}
           {allImages.length > 1 && (
@@ -531,27 +595,31 @@ export function EventDetailScreen({
           <View style={styles.actionsRow}>
             <TouchableOpacity
               onPress={() => onNavigate?.("review", event.id)}
-              style={styles.actionBtn}
+              style={[styles.actionBtn, styles.actionBtnReview]}
               accessibilityRole="button"
               accessibilityLabel="Review"
             >
               <Star size={16} color="#111" />
-              <Text style={styles.actionText}>Review</Text>
+              <Text style={styles.actionText} numberOfLines={1} ellipsizeMode="tail">
+                Review
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               onPress={() => {}}
-              style={styles.actionBtn}
+              style={[styles.actionBtn, styles.actionBtnGrow]}
               accessibilityRole="button"
               accessibilityLabel="Directions"
             >
               <Navigation size={16} color="#111" />
-              <Text style={styles.actionText}>Directions</Text>
+              <Text style={styles.actionText} numberOfLines={1} ellipsizeMode="tail">
+                Directions
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               onPress={handleBookmarkPress}
-              style={[styles.actionBtn, isBookmarked && styles.actionBtnBookmarked]}
+              style={[styles.actionBtn, styles.actionBtnGrow, isBookmarked && styles.actionBtnBookmarked]}
               accessibilityRole="button"
               accessibilityLabel={isBookmarked ? 'Bookmarked' : 'Bookmark'}
             >
@@ -560,7 +628,11 @@ export function EventDetailScreen({
                 color={isBookmarked ? '#111827' : '#111'}
                 fill={isBookmarked ? '#111827' : 'none'}
               />
-              <Text style={[styles.actionText, isBookmarked && styles.actionTextBookmarked]}>
+              <Text
+                style={[styles.actionText, isBookmarked && styles.actionTextBookmarked]}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
                 {isBookmarked ? 'Bookmarked' : 'Bookmark'}
               </Text>
             </TouchableOpacity>
@@ -663,6 +735,18 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   heroImage: { width: SCREEN_W, height: HERO_H },
+  heroPlaceholder: {
+    width: SCREEN_W,
+    height: HERO_H,
+    backgroundColor: "#D1D5DB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  heroPlaceholderText: {
+    fontSize: 40,
+    fontWeight: "800",
+    color: "#374151",
+  },
 
   indicators: {
     position: "absolute",
@@ -705,17 +789,36 @@ const styles = StyleSheet.create({
   ratingText: { fontSize: 14, fontWeight: "700", color: "#111" },
   reviewCount: { fontSize: 12, color: "#4B5563" },
 
-  actionsRow: { flexDirection: "row", gap: 8, marginBottom: 24, flexWrap: "wrap" },
+  actionsRow: {
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: 24,
+    alignItems: "stretch",
+  },
   actionBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 14,
+    justifyContent: "center",
+    gap: 4,
+    paddingHorizontal: 6,
     paddingVertical: 10,
     backgroundColor: "#F3F4F6",
     borderRadius: 10,
   },
-  actionText: { fontSize: 14, fontWeight: "600", color: "#111" },
+  /** Sizes to content; extra row width goes to Directions + Bookmark */
+  actionBtnReview: {
+    flexGrow: 0,
+    flexShrink: 0,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    minWidth: 56,
+  },
+  actionBtnGrow: {
+    flex: 1,
+    minWidth: 0,
+  },
+  actionText: { flexShrink: 1, fontSize: 14, fontWeight: "600", color: "#111" },
   actionBtnBookmarked: {
     backgroundColor: "#E5E7EB",
     borderWidth: 1,

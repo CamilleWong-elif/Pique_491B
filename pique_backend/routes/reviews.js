@@ -1,7 +1,7 @@
 const express = require("express");
 const { db } = require("../src/config/firebase");
 const { authenticate } = require("../middleware/auth");
-const { FieldValue } = require("firebase-admin/firestore");
+const { FieldValue, FieldPath } = require("firebase-admin/firestore");
 
 const router = express.Router();
 
@@ -132,31 +132,47 @@ router.get("/", authenticate, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/reviews/friends — Get reviews from friends
-// Used by CommunityPage "Friend Reviews" tab & LeaderboardPage
+// GET /api/reviews/friends — Get reviews from people you follow plus your own
+// Used by HomePage activity feed, CommunityPage "Friend Reviews" tab
 // ---------------------------------------------------------------------------
 router.get("/friends", authenticate, async (req, res) => {
   try {
     const normalize = (value) =>
       typeof value === "string" ? value.trim().toLowerCase() : "";
 
-    const currentUserDoc = await db.collection("users").doc(req.user.uid).get();
+    const viewerUid = req.user.uid;
+
+    const currentUserDoc = await db.collection("users").doc(viewerUid).get();
     const followingIds = currentUserDoc.exists
       ? currentUserDoc.data().followingCount || []
       : [];
 
     const friendsSnap = await db
       .collection("users")
-      .doc(req.user.uid)
+      .doc(viewerUid)
       .collection("friends")
       .get();
     const subcollectionFriendIds = friendsSnap.docs.map((doc) => doc.id);
     const friendIds = Array.from(new Set([...followingIds, ...subcollectionFriendIds]))
-      .filter((id) => typeof id === "string" && id.trim().length > 0);
+      .filter((id) => typeof id === "string" && id.trim().length > 0 && id !== viewerUid);
 
-    if (friendIds.length === 0) {
-      return res.json([]);
-    }
+    const allReviewsMap = new Map();
+
+    // Always include the current user's reviews (home activity feed + community when following nobody).
+    const ownByAuthor = await db.collection("reviews").where("author", "==", viewerUid).get();
+    ownByAuthor.docs.forEach((doc) => {
+      allReviewsMap.set(doc.id, { id: doc.id, ...doc.data() });
+    });
+    const [ownByAuthorId, ownByUserId] = await Promise.all([
+      db.collection("reviews").where("authorId", "==", viewerUid).limit(80).get(),
+      db.collection("reviews").where("userId", "==", viewerUid).limit(80).get(),
+    ]);
+    ownByAuthorId.docs.forEach((doc) => {
+      allReviewsMap.set(doc.id, { id: doc.id, ...doc.data() });
+    });
+    ownByUserId.docs.forEach((doc) => {
+      allReviewsMap.set(doc.id, { id: doc.id, ...doc.data() });
+    });
 
     const friendUidSet = new Set(friendIds);
     const friendIdentitySet = new Set(friendIds.map(normalize));
@@ -176,7 +192,6 @@ router.get("/friends", authenticate, async (req, res) => {
 
     // Firestore 'in' queries support max 30 items.
     // Avoid `in + orderBy` here to prevent composite-index failures.
-    const allReviewsMap = new Map();
     for (let i = 0; i < friendIds.length; i += 30) {
       const batch = friendIds.slice(i, i + 30);
       const snap = await db
@@ -188,6 +203,13 @@ router.get("/friends", authenticate, async (req, res) => {
         allReviewsMap.set(doc.id, { id: doc.id, ...doc.data() });
       }
     }
+
+    const selfData = currentUserDoc.exists ? currentUserDoc.data() : {};
+    const selfIdentitySet = new Set(
+      [normalize(viewerUid), normalize(selfData.username), normalize(selfData.displayName)].filter(
+        Boolean
+      )
+    );
 
     // Fallback for older/manual docs where identity fields are not consistently uid-based.
     const recentReviewsSnap = await db
@@ -213,13 +235,21 @@ router.get("/friends", authenticate, async (req, res) => {
         normalize(review.friendName),
       ].filter(Boolean);
 
+      const matchesSelf =
+        authorRaw === viewerUid ||
+        review.authorId === viewerUid ||
+        review.userId === viewerUid ||
+        review.authorUid === viewerUid ||
+        review.uid === viewerUid ||
+        reviewIdentityCandidates.some((candidate) => selfIdentitySet.has(candidate));
+
       const matchesFriend =
         friendUidSet.has(authorRaw) ||
         reviewIdentityCandidates.some((candidate) =>
           friendIdentitySet.has(candidate)
         );
 
-      if (matchesFriend) {
+      if (matchesSelf || matchesFriend) {
         allReviewsMap.set(doc.id, { id: doc.id, ...review });
       }
     });
@@ -304,6 +334,48 @@ router.post("/:reviewId/like", authenticate, async (req, res) => {
   } catch (err) {
     console.error("POST /api/reviews/:reviewId/like error:", err);
     return res.status(500).json({ error: "Failed to toggle review like" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/reviews/:reviewId/likes — List users who liked (for activity feed UI)
+// ---------------------------------------------------------------------------
+router.get("/:reviewId/likes", authenticate, async (req, res) => {
+  try {
+    const reviewDoc = await db.collection("reviews").doc(req.params.reviewId).get();
+
+    if (!reviewDoc.exists) {
+      return res.status(404).json({ error: "Review not found" });
+    }
+
+    const review = reviewDoc.data();
+    const likedBy = Array.isArray(review.likedBy) ? review.likedBy : [];
+    const uidList = [...new Set(likedBy.filter((id) => typeof id === "string" && id.trim().length > 0))];
+
+    const byUid = new Map();
+    for (let i = 0; i < uidList.length; i += 10) {
+      const batch = uidList.slice(i, i + 10);
+      const usersSnap = await db.collection("users").where(FieldPath.documentId(), "in", batch).get();
+      usersSnap.docs.forEach((doc) => {
+        const u = doc.data();
+        byUid.set(doc.id, {
+          userId: doc.id,
+          userName: u.displayName || u.username || "User",
+          userAvatar: u.avatarDataUrl || u.avatar || u.photoURL || null,
+        });
+      });
+    }
+
+    const likers = uidList.map((uid) => {
+      const row = byUid.get(uid);
+      if (row) return row;
+      return { userId: uid, userName: "User", userAvatar: null };
+    });
+
+    return res.json(likers);
+  } catch (err) {
+    console.error("GET /api/reviews/:reviewId/likes error:", err);
+    return res.status(500).json({ error: "Failed to fetch review likes" });
   }
 });
 
