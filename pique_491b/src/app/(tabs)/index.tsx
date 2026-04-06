@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useAuth } from '@/context/AuthContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { CommunityPage } from '../screens/CommunityPage';
@@ -22,14 +24,83 @@ import { NavigationBar } from '@/components/NavigationBar';
 import { EventDetailScreen } from '../screens/EventDetailPage';
 import { LeaveReviewScreen } from '../screens/LeaveReviewPage';
 
+const NAV_STATE_KEY = '@pique_nav_state';
+
+/** Intro splash only once per JS runtime so remounts (OAuth, activity restore) do not replay it. */
+let introSplashCompleted = false;
+
 export default function App() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { user, loading: authLoading, signOut } = useAuth();
+  const [isLoading, setIsLoading] = useState(() => !introSplashCompleted);
   const [showSignUp, setShowSignUp] = useState(false);
+  const [navHydrated, setNavHydrated] = useState(false);
   const [currentPage, setCurrentPage] = useState('home');
   const [postedEventName, setPostedEventName] = useState('');
   const [selectedFriendName, setSelectedFriendName] = useState('');
   const [selectedEventId, setSelectedEventId] = useState<string>('');
+  const prevUidRef = useRef<string | null | undefined>(undefined);
+
+  const isAuthenticated = !!user;
+
+  const completeIntroSplash = useCallback(() => {
+    introSplashCompleted = true;
+    setIsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(NAV_STATE_KEY);
+        if (raw && !cancelled) {
+          const s = JSON.parse(raw) as Record<string, unknown>;
+          if (typeof s.currentPage === 'string' && s.currentPage.trim().length > 0) {
+            setCurrentPage(s.currentPage);
+          }
+          if (typeof s.selectedEventId === 'string') setSelectedEventId(s.selectedEventId);
+          if (typeof s.selectedFriendName === 'string') setSelectedFriendName(s.selectedFriendName);
+          if (typeof s.postedEventName === 'string') setPostedEventName(s.postedEventName);
+        }
+      } catch {
+        /* ignore corrupt storage */
+      } finally {
+        if (!cancelled) setNavHydrated(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const uid = user?.uid ?? null;
+    if (prevUidRef.current === undefined) {
+      prevUidRef.current = uid;
+      return;
+    }
+    if (prevUidRef.current !== null && uid === null) {
+      setShowSignUp(false);
+      setCurrentPage('home');
+      setSelectedEventId('');
+      setSelectedFriendName('');
+      setPostedEventName('');
+      void AsyncStorage.removeItem(NAV_STATE_KEY);
+    }
+    prevUidRef.current = uid;
+  }, [user]);
+
+  useEffect(() => {
+    if (!navHydrated || !user) return;
+    void AsyncStorage.setItem(
+      NAV_STATE_KEY,
+      JSON.stringify({
+        currentPage,
+        selectedEventId,
+        selectedFriendName,
+        postedEventName,
+      })
+    );
+  }, [navHydrated, user, currentPage, selectedEventId, selectedFriendName, postedEventName]);
 
   const handleNavigate = (page: string, param?: string, options?: any) => {
     if (__DEV__) {
@@ -47,6 +118,15 @@ export default function App() {
       setSelectedFriendName(friendName);
     }
     setCurrentPage(page);
+  };
+
+  const handleSignOut = async () => {
+    setShowSignUp(false);
+    try {
+      await signOut();
+    } catch (e) {
+      console.error('Sign out failed:', e);
+    }
   };
 
   const getAvatarWithFallback = (name: string) => {
@@ -79,84 +159,91 @@ export default function App() {
     );
   };
 
+  const gateReady = !isLoading && navHydrated;
+  /** After intro, wait for saved route + Firebase before showing login or main UI. */
+  const showBootstrapLoader = !isLoading && (!navHydrated || authLoading);
+  const showLoginStack = gateReady && !authLoading && !isAuthenticated && !showSignUp;
+  const showSignUpStack = gateReady && !authLoading && !isAuthenticated && showSignUp;
+  const showApp = gateReady && !authLoading && isAuthenticated;
+
   return (
     <SafeAreaProvider>
       <ErrorBoundary onReset={() => setCurrentPage('home')}>
         <View style={styles.container}>
-        {/* Show splash screen on launch */}
-        {isLoading && (
-          <SplashScreen onComplete={() => setIsLoading(false)} />
+        {isLoading && <SplashScreen onComplete={completeIntroSplash} />}
+
+        {showBootstrapLoader && (
+          <View style={styles.authLoading}>
+            <ActivityIndicator size="large" color="#298cf4" />
+          </View>
         )}
 
-        {/* Show login if not authenticated and not signing up */}
-        {!isLoading && !isAuthenticated && !showSignUp && (
+        {showLoginStack && (
           <LoginScreen
-            onLogin={() => setIsAuthenticated(true)}
+            onLogin={() => {}}
             onNavigateToSignUp={() => setShowSignUp(true)}
           />
         )}
 
-        {/* Show sign up if user tapped "Sign Up" on login */}
-        {!isLoading && !isAuthenticated && showSignUp && (
+        {showSignUpStack && (
           <SignUpScreen
-            onSignUp={() => setIsAuthenticated(true)}
+            onSignUp={() => {}}
             onNavigateToLogin={() => setShowSignUp(false)}
           />
         )}
 
-        {/* Show main app once authenticated */}
-        {!isLoading && isAuthenticated && currentPage === 'home' && (
+        {showApp && currentPage === 'home' && (
           <HomePage
             onNavigate={handleNavigate}
-            onSignOut={() => { setIsAuthenticated(false); setShowSignUp(false); }}
+            onSignOut={handleSignOut}
             onOpenMessages={() => handleNavigate('messages')}
           />
         )}
-        {!isLoading && isAuthenticated && currentPage === 'explore' && (
+        {showApp && currentPage === 'explore' && (
           <ExplorePage onNavigate={handleNavigate} />
         )}
-        {!isLoading && isAuthenticated && currentPage === 'leaderboard' && (
+        {showApp && currentPage === 'leaderboard' && (
           <CommunityPage onNavigate={handleNavigate} />
         )}
-        {!isLoading && isAuthenticated && currentPage === 'profile' && (
+        {showApp && currentPage === 'profile' && (
           <ProfilePage onNavigate={handleNavigate} />
         )}
-        {!isLoading && isAuthenticated && currentPage === 'create' && (
+        {showApp && currentPage === 'create' && (
           <CreateEventPage onNavigate={handleNavigate} />
         )}
-        {!isLoading && isAuthenticated && currentPage === 'messages' && (
+        {showApp && currentPage === 'messages' && (
           <MessagingScreen onBack={() => handleNavigate('home')} />
         )}
-        {!isLoading && isAuthenticated && currentPage === 'settings' && (
+        {showApp && currentPage === 'settings' && (
           <SettingsScreen onNavigate={handleNavigate} />
         )}
-        {!isLoading && isAuthenticated && currentPage === 'contact' && (
+        {showApp && currentPage === 'contact' && (
           <ContactUsPage onNavigate={handleNavigate} />
         )}
-        {!isLoading && isAuthenticated && currentPage === 'terms' && (
+        {showApp && currentPage === 'terms' && (
           <TermsConditionsScreen onNavigate={handleNavigate} />
         )}
-        {!isLoading && isAuthenticated && currentPage === 'privacy' && (
+        {showApp && currentPage === 'privacy' && (
           <PrivacyPolicyScreen onNavigate={handleNavigate} />
         )}
-        {!isLoading && isAuthenticated && currentPage === 'event' && !!selectedEventId && (
+        {showApp && currentPage === 'event' && !!selectedEventId && (
           <EventDetailScreen
             eventId={selectedEventId}
             onBack={() => handleNavigate('home')}
             onNavigate={handleNavigate}
           />
         )}
-        {!isLoading && isAuthenticated && currentPage === 'review' && !!selectedEventId && (
+        {showApp && currentPage === 'review' && !!selectedEventId && (
           <LeaveReviewScreen
             event={{ id: selectedEventId, imageUrl: '', businessName: '', location: '' }}
             onBack={() => handleNavigate('event', selectedEventId)}
             onReviewPosted={() => handleNavigate('event', selectedEventId)}
           />
         )}
-        {!isLoading && isAuthenticated && currentPage === 'event-posted' && (
+        {showApp && currentPage === 'event-posted' && (
           <EventPostedPage eventName={postedEventName} onNavigate={handleNavigate} />
         )}
-        {!isLoading && isAuthenticated && currentPage === 'friendProfile' && selectedFriendName.length > 0 && (
+        {showApp && currentPage === 'friendProfile' && selectedFriendName.length > 0 && (
           <FriendProfileScreen
             friendName={selectedFriendName}
             onNavigate={handleNavigate}
@@ -178,5 +265,11 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  authLoading: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
   },
 });
