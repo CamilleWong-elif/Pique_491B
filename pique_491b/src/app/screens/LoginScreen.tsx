@@ -1,7 +1,7 @@
 import { auth } from '@/firebase';
-import { apiEnsureProfile } from '@/api';
+import { apiEnsureProfile, apiGetEmailAuthStatus } from '@/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { GoogleAuthProvider, sendPasswordResetEmail, signInWithCredential, signInWithCustomToken, signInWithEmailAndPassword } from 'firebase/auth';
+import { GoogleAuthProvider, fetchSignInMethodsForEmail, sendPasswordResetEmail, signInWithCredential, signInWithCustomToken, signInWithEmailAndPassword } from 'firebase/auth';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
@@ -36,6 +36,18 @@ interface LoginScreenProps {
   onLogin: () => void;
   onNavigateToSignUp: () => void;
 }
+
+const providerDisplayName = (method: string): string => {
+  if (method === 'google.com') return 'Google';
+  if (method === 'student.csulb.edu') return 'Microsoft';
+  return method;
+};
+
+const providerListLabel = (providers: string[]): string => {
+  const names = providers.map(providerDisplayName).filter(Boolean);
+  if (names.length === 0) return 'a social sign-in provider';
+  return names.join(', ');
+};
 
 export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
   const [email, setEmail] = useState('');
@@ -93,7 +105,15 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
 
     setIsSubmitting(true);
     try {
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      const normalizedEmail = email.trim().toLowerCase();
+      const authStatus = await apiGetEmailAuthStatus(normalizedEmail).catch(() => null);
+      if (authStatus?.exists && !authStatus.hasPassword && authStatus.providers.length > 0) {
+        const providers = providerListLabel(authStatus.providers);
+        setError(`This account uses ${providers} (third-party login) and has no password. Please sign in with ${providers} instead.`);
+        return;
+      }
+
+      await signInWithEmailAndPassword(auth, normalizedEmail, password);
       
       if (rememberMe) {
         await AsyncStorage.setItem(REMEMBER_ME_KEY, 'true');
@@ -267,7 +287,7 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
   };
 
   const handleSendPasswordReset = async () => {
-    const emailToUse = forgotPasswordEmail.trim();
+    const emailToUse = forgotPasswordEmail.trim().toLowerCase();
     if (!emailToUse) {
       setForgotPasswordMessage({ type: 'error', text: 'Please enter your email.' });
       return;
@@ -275,10 +295,45 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
     setForgotPasswordMessage(null);
     setForgotPasswordLoading(true);
     try {
+      let authStatus: { exists: boolean; hasPassword: boolean; providers: string[] } | null = null;
+      try {
+        authStatus = await apiGetEmailAuthStatus(emailToUse);
+      } catch {
+        // Fallback to Firebase method lookup when backend check is unavailable.
+        const methods = await fetchSignInMethodsForEmail(auth, emailToUse);
+        authStatus = {
+          exists: methods.length > 0,
+          hasPassword: methods.includes('password'),
+          providers: methods,
+        };
+      }
+
+      if (!authStatus.exists) {
+        setForgotPasswordMessage({ type: 'error', text: 'No account found with this email.' });
+        return;
+      }
+
+      if (authStatus.exists && !authStatus.hasPassword && authStatus.providers.length > 0) {
+        const providers = providerListLabel(authStatus.providers);
+        setForgotPasswordMessage({
+          type: 'error',
+          text: `This account uses ${providers} (third-party login) and has no password. Password reset is not available.`,
+        });
+        return;
+      }
+
       await sendPasswordResetEmail(auth, emailToUse);
-      setForgotPasswordMessage({ type: 'success', text: 'Sent an email.' });
+      setForgotPasswordMessage({ type: 'success', text: 'Sent a reset email.' });
     } catch (err: any) {
-      setForgotPasswordMessage({ type: 'error', text: 'Something went wrong. Please try again.' });
+      if (err?.code === 'auth/user-not-found') {
+        setForgotPasswordMessage({ type: 'error', text: 'No account found with this email.' });
+      } else if (err?.code === 'auth/invalid-email') {
+        setForgotPasswordMessage({ type: 'error', text: 'Please enter a valid email address.' });
+      } else if (err?.code === 'auth/too-many-requests') {
+        setForgotPasswordMessage({ type: 'error', text: 'Too many attempts. Please try again later.' });
+      } else {
+        setForgotPasswordMessage({ type: 'error', text: 'Could not send reset email. Please try again.' });
+      }
     } finally {
       setForgotPasswordLoading(false);
     }
