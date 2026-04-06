@@ -10,6 +10,8 @@ export interface UserProfile {
   username?: string;
   followerCount?: string[];
   followingCount?: string[];
+  /** Event IDs the user bookmarked (synced with POST /api/events/:id/like) */
+  likedEvents?: string[];
   updatedAt?: unknown;
 }
 

@@ -68,7 +68,13 @@ export function ProfilePage({
   const [postedEvents, setPostedEvents] = useState<Event[]>([]);
   const [likedEvents, setLikedEvents] = useState<Event[]>([]);
   const [bookedEvents, setBookedEvents] = useState<Event[]>([]);
+  const [likedEventIds, setLikedEventIds] = useState<Set<string>>(new Set());
   const [loadingEvents, setLoadingEvents] = useState(true);
+
+  useEffect(() => {
+    const liked: string[] = profile?.likedEvents ?? [];
+    setLikedEventIds(new Set(liked));
+  }, [profile?.likedEvents]);
 
   const userName = profile?.displayName ?? user?.displayName ?? user?.email ?? 'User';
   const username = (profile as any)?.username ?? '';
@@ -135,7 +141,7 @@ export function ProfilePage({
         setPostedEvents(posted);
 
         // Filter liked events from all events
-        const likedIds: string[] = (profile as any)?.likedEvents ?? [];
+        const likedIds: string[] = profile?.likedEvents ?? [];
         const likedSet = new Set(likedIds);
         const liked = allEvents
           .filter((e: any) => likedSet.has(e.id))
@@ -162,7 +168,7 @@ export function ProfilePage({
     };
 
     fetchData();
-  }, [user?.uid]);
+  }, [user?.uid, JSON.stringify(profile?.likedEvents ?? [])]);
 
   // Sorting
   const sortEvents = useCallback((events: Event[], sortBy: SortKey): Event[] => {
@@ -292,22 +298,41 @@ export function ProfilePage({
     }
   };
 
-  // Bookmark/like handler
+  // Bookmark/like handler (optimistic UI + backend; likedEventIds mirrors HomePage)
   const handleBookmarkPress = async (eventId?: string) => {
     if (!eventId || !user?.uid) return;
-    const likedIds: string[] = (profile as any)?.likedEvents ?? [];
-    const isLiked = likedIds.includes(eventId);
+    const wasLiked = likedEventIds.has(eventId);
+    const removedForRevert = wasLiked ? likedEvents.find(e => e.id === eventId) : undefined;
+    if (wasLiked) {
+      setLikedEventIds(prev => {
+        const n = new Set(prev);
+        n.delete(eventId);
+        return n;
+      });
+      setLikedEvents(prev => prev.filter(e => e.id !== eventId));
+    } else {
+      setLikedEventIds(prev => new Set(prev).add(eventId));
+      const existing = [...postedEvents, ...bookedEvents, ...likedEvents].find(e => e.id === eventId);
+      if (existing && !likedEvents.some(e => e.id === eventId)) {
+        setLikedEvents(prev => [...prev, existing]);
+      }
+    }
     try {
       await apiToggleLike(eventId);
-      if (isLiked) {
-        setLikedEvents(prev => prev.filter(e => e.id !== eventId));
-      } else {
-        const existing = [...postedEvents, ...bookedEvents].find(e => e.id === eventId);
-        if (existing) {
-          setLikedEvents(prev => [...prev, existing]);
-        }
-      }
     } catch (err) {
+      if (wasLiked) {
+        setLikedEventIds(prev => new Set(prev).add(eventId));
+        if (removedForRevert) {
+          setLikedEvents(prev => (prev.some(e => e.id === eventId) ? prev : [...prev, removedForRevert]));
+        }
+      } else {
+        setLikedEventIds(prev => {
+          const n = new Set(prev);
+          n.delete(eventId);
+          return n;
+        });
+        setLikedEvents(prev => prev.filter(e => e.id !== eventId));
+      }
       console.error('Bookmark error:', err);
     }
   };
@@ -326,6 +351,7 @@ export function ProfilePage({
         event={item}
         onPress={() => onNavigate('event', item.id)}
         onBookmarkPress={handleBookmarkPress}
+        isBookmarked={likedEventIds.has(item.id)}
         hideBookmark={activeTab === 'booked'}
       />
     </View>
