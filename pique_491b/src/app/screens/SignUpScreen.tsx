@@ -1,14 +1,13 @@
 import { auth } from '@/firebase';
-import { apiRegister } from '@/api';
+import { apiGetEmailAuthStatus, apiRegister } from '@/api';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { Calendar, Check, Eye, EyeOff, Lock, Mail, User, X } from 'lucide-react-native';
 import { useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useColorScheme, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Rect } from 'react-native-svg';
 
-const colorScheme = useColorScheme();
 const logo = require('@/assets/images/temp_logo.png');
 
 interface SignUpScreenProps {
@@ -112,6 +111,12 @@ export function SignUpScreen({ onSignUp, onNavigateToLogin }: SignUpScreenProps)
 
     if (Object.keys(newErrors).length === 0) {
       try {
+        const { exists } = await apiGetEmailAuthStatus(formData.email);
+        if (exists) {
+          setErrors(prev => ({ ...prev, email: 'This email is already registered' }));
+          return;
+        }
+
         const userCredential = await createUserWithEmailAndPassword(
           auth,
           formData.email,

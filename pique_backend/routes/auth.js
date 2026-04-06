@@ -4,6 +4,95 @@ const { authenticate } = require("../middleware/auth");
 
 const router = express.Router();
 
+const PROVIDER_MAP = {
+  password: "password",
+  "google.com": "google.com",
+  "microsoft.com": "microsoft.com",
+  "apple.com": "apple.com",
+};
+
+function normalizeProviders(providerIds = []) {
+  const mapped = providerIds
+    .map((id) => PROVIDER_MAP[id] || id)
+    .filter(Boolean);
+  return Array.from(new Set(mapped));
+}
+
+function inferPrimaryProvider(providers = []) {
+  if (providers.includes("password")) return "password";
+  return providers[0] || "";
+}
+
+function withProviderFallbacks({
+  providers = [],
+  uid = "",
+  email = "",
+  existingProviders = [],
+}) {
+  if (providers.length > 0) return providers;
+  if (Array.isArray(existingProviders) && existingProviders.length > 0) return existingProviders;
+  if (String(uid).startsWith("microsoft_")) return ["microsoft.com"];
+  if (String(email).toLowerCase().endsWith("@student.csulb.edu")) return ["microsoft.com"];
+  return [];
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/auth/email-auth-status?email=... — Check account providers by email
+// Returns whether account exists and which auth providers are linked.
+// ---------------------------------------------------------------------------
+router.get("/email-auth-status", async (req, res) => {
+  try {
+    const emailRaw = String(req.query.email || "").trim();
+    const email = emailRaw.toLowerCase();
+
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: "Invalid email format" });
+    }
+
+    try {
+      const userRecord = await admin.auth().getUserByEmail(email);
+      const existingDoc = await db.collection("users").doc(userRecord.uid).get();
+      const existingProviders = existingDoc.exists ? existingDoc.data()?.authProviders || [] : [];
+      const rawProviders = normalizeProviders((userRecord.providerData || []).map((p) => p.providerId));
+      const providers = withProviderFallbacks({
+        providers: rawProviders,
+        uid: userRecord.uid,
+        email,
+        existingProviders,
+      });
+      const primaryAuthProvider = inferPrimaryProvider(providers);
+
+      // Keep users doc in sync for quick client checks later.
+      await db.collection("users").doc(userRecord.uid).set(
+        {
+          email,
+          authProviders: providers,
+          primaryAuthProvider,
+        },
+        { merge: true }
+      );
+
+      return res.json({
+        exists: true,
+        providers,
+        hasPassword: providers.includes("password"),
+        primaryAuthProvider,
+      });
+    } catch (err) {
+      if (err.code === "auth/user-not-found") {
+        return res.json({ exists: false, providers: [], hasPassword: false, primaryAuthProvider: "" });
+      }
+      throw err;
+    }
+  } catch (err) {
+    console.error("GET /api/auth/email-auth-status error:", err);
+    return res.status(500).json({ error: "Failed to check email auth status" });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // POST /api/auth/microsoft — Exchange a Microsoft access token for a Firebase
 // custom token. The client obtains the MS access token via expo-auth-session,
@@ -54,6 +143,15 @@ router.post("/microsoft", async (req, res) => {
 
     const customToken = await admin.auth().createCustomToken(uid);
 
+    await db.collection("users").doc(uid).set(
+      {
+        email: (email || "").toLowerCase(),
+        authProviders: ["microsoft.com"],
+        primaryAuthProvider: "microsoft.com",
+      },
+      { merge: true }
+    );
+
     return res.json({ customToken, profile });
   } catch (err) {
     console.error("POST /api/auth/microsoft error:", err);
@@ -98,7 +196,9 @@ router.post("/register", authenticate, async (req, res) => {
     const userData = {
       displayName: fullName.trim(),
       username: username.toLowerCase(),
-      email: req.user.email || "",
+      email: (req.user.email || "").toLowerCase(),
+      authProviders: ["password"],
+      primaryAuthProvider: "password",
       dateOfBirth: dateOfBirth || null,
       bio: "",
       avatar: null,
@@ -133,18 +233,23 @@ router.post("/ensure-profile", authenticate, async (req, res) => {
   try {
     const userRef = db.collection("users").doc(req.user.uid);
     const userDoc = await userRef.get();
-
-    if (userDoc.exists) {
-      return res.json({ id: req.user.uid, ...userDoc.data(), created: false });
-    }
-
-    // Pull info from Firebase Auth
     const authUser = await admin.auth().getUser(req.user.uid);
+    const existing = userDoc.exists ? userDoc.data() || {} : {};
+    const rawProviders = normalizeProviders((authUser.providerData || []).map((p) => p.providerId));
+    const authProviders = withProviderFallbacks({
+      providers: rawProviders,
+      uid: req.user.uid,
+      email: authUser.email || "",
+      existingProviders: existing.authProviders || [],
+    });
+    const primaryAuthProvider = inferPrimaryProvider(authProviders);
 
-    const userData = {
+    const defaultUserData = {
       displayName: authUser.displayName || "",
       username: "",
-      email: authUser.email || "",
+      email: (authUser.email || "").toLowerCase(),
+      authProviders,
+      primaryAuthProvider,
       bio: "",
       avatar: null,
       photoURL: authUser.photoURL || null,
@@ -159,9 +264,37 @@ router.post("/ensure-profile", authenticate, async (req, res) => {
       createdAt: new Date().toISOString(),
     };
 
-    await userRef.set(userData);
+    if (userDoc.exists) {
+      const patch = {};
 
-    return res.status(201).json({ id: req.user.uid, ...userData, created: true });
+      for (const [key, value] of Object.entries(defaultUserData)) {
+        if (existing[key] === undefined) {
+          patch[key] = value;
+        }
+      }
+
+      // Always keep auth/provider identity fields current.
+      patch.authProviders = authProviders;
+      patch.primaryAuthProvider = primaryAuthProvider;
+      if (authUser.email) patch.email = authUser.email.toLowerCase();
+      if (authUser.photoURL && (existing.photoURL == null || existing.photoURL === "")) {
+        patch.photoURL = authUser.photoURL;
+      }
+      if (authUser.displayName && (!existing.displayName || !String(existing.displayName).trim())) {
+        patch.displayName = authUser.displayName;
+      }
+
+      if (Object.keys(patch).length > 0) {
+        await userRef.set(patch, { merge: true });
+      }
+
+      const refreshedDoc = await userRef.get();
+      return res.json({ id: req.user.uid, ...refreshedDoc.data(), created: false });
+    }
+
+    await userRef.set(defaultUserData);
+
+    return res.status(201).json({ id: req.user.uid, ...defaultUserData, created: true });
   } catch (err) {
     console.error("POST /api/auth/ensure-profile error:", err);
     return res.status(500).json({ error: "Failed to ensure user profile" });
