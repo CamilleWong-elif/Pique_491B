@@ -23,18 +23,20 @@ npm start
 ```bash
 # Make sure you are in correct directory (from root repo folder)
 cd pique_491b
-# Installs everything specified in package.json
+# Installs everything specified in package.json and npx dependencies only need to run once (if unsure, just run when starting from scratch or switching between branches)
 npm install  
 npm install @react-native-google-signin/google-signin
-# Command to start development build for Expo server. We are not using npx expo start anymore!! 
+npx expo prebuild
+# Command to start development build for Expo server. We are not using npx expo start anymore!!
 npx expo run:android
 ```
 
-*The last command takes quite some time to build. Give roughly 15-20 minutes for npx expo run:android to install the first time.*
+*The last command takes quite some time to build the first time. Give roughly 15-20 minutes for npx expo run:android to install the first time.*
 
 #### Troubleshooting
-*If you see any issues with NDK in the error log, try reinstalling the NDK library in Android Studio.*
-*If you see a network request error in the error log, it is most likely EXPO_API_URL is not configured correctly. Double check with a teammate for your .env file.*
+1. If you see any issues with NDK in the error log, try reinstalling the NDK library in Android Studio.
+2. If you see a network request error in the error log, it is most likely EXPO_API_URL is not configured correctly. **Double check with a teammate for your .env file.**
+3. For *Error: could not connect to TCP port 5554: cannot connect to 127.0.0.1:5554: No connection could be made because the target machine actively refused it. (10061)*, kill the Android Studio process (may require force quitting "qemu-system..." process via Task Manager for Windows) and rerun the *npx expo run:android* command.
 
 ###### Install specific version of NDK
 
@@ -48,6 +50,7 @@ npx expo run:android
 ###### .env Checklist
 Make sure you have these variables within your .env:
 ```bash
+# Frontend
 EXPO_PUBLIC_GOOGLE_MAPS_API_KEY=
 EXPO_PUBLIC_GOOGLE_EXPO_CLIENT_ID=
 EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=
@@ -62,6 +65,10 @@ EXPO_PUBLIC_FIREBASE_PROJECT_ID=
 EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=
 EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
 EXPO_PUBLIC_FIREBASE_APP_ID=
+
+# Backend
+PORT=3000
+FIREBASE_SERVICE_ACCOUNT_PATH=
 
 SMTP_HOST=
 SMTP_PORT=
