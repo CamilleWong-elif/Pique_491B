@@ -1,5 +1,5 @@
 // SocialActivityCard.tsx
-import React, { useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -42,6 +42,7 @@ export type SocialActivity = {
   userName: string;
   userAvatar?: string;
   authorId?: string;
+  eventId?: string;
   eventName?: string;
   eventLocation?: string;
   rating?: number;
@@ -63,6 +64,7 @@ type Props = {
   onPostComment?: (activityId: string, text: string) => void;
   onPostReply?: (activityId: string, commentId: string, text: string) => void;
   onDelete?: (activityId: string) => void;
+  compact?: boolean;
 };
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -76,15 +78,18 @@ export function SocialActivityCard({
   onPostComment,
   onPostReply,
   onDelete,
+  compact = false,
 }: Props) {
   const { profile } = useAuth();
   const { user } = useAuth();
+  const isCompact = compact && activity.action === "rated";
   const isOwner = !!activity.authorId && activity.authorId === user?.uid;
   const [isLiked, setIsLiked] = useState<boolean>(!!activity.isLiked);
   const [isSaved, setIsSaved] = useState<boolean>(!!activity.isSaved);
   const [localLikes, setLocalLikes] = useState<number>(activity.likes || 0);
   const [showComments, setShowComments] = useState<boolean>(false);
-  const [localCommentCount, setLocalCommentCount] = useState<number>(activity.comments.length);
+  const [localComments, setLocalComments] = useState<Comment[]>(activity.comments || []);
+  const [localCommentCount, setLocalCommentCount] = useState<number>((activity.comments || []).length);
 
   // Gallery state
   const [galleryOpen, setGalleryOpen] = useState<boolean>(false);
@@ -97,6 +102,14 @@ export function SocialActivityCard({
   const [replyText, setReplyText] = useState<string>("");
 
   const flatListRef = useRef<FlatList<string> | null>(null);
+
+  useEffect(() => {
+    setIsLiked(!!activity.isLiked);
+    setLocalLikes(activity.likes || 0);
+    const nextComments = activity.comments || [];
+    setLocalComments(nextComments);
+    setLocalCommentCount(nextComments.length);
+  }, [activity.id, activity.isLiked, activity.likes, activity.comments]);
 
   const toggleLike = () => {
     const next = !isLiked;
@@ -142,7 +155,16 @@ export function SocialActivityCard({
 
   const onPostLocalComment = () => {
     if (!commentText.trim()) return;
-    onPostComment?.(activity.id, commentText.trim());
+    const text = commentText.trim();
+    onPostComment?.(activity.id, text);
+    const optimisticComment: Comment = {
+      id: `local_${Date.now()}`,
+      userName: profile?.displayName || "You",
+      userAvatar: profile?.avatarDataUrl || profile?.photoURL || undefined,
+      text,
+      timestamp: new Date().toISOString(),
+    };
+    setLocalComments((prev) => [...prev, optimisticComment]);
     setLocalCommentCount((c) => c + 1);
     setCommentText("");
   };
@@ -172,6 +194,12 @@ export function SocialActivityCard({
     if (diffHours < 24) return `${diffHours}h`;
     if (diffDays === 1) return "yesterday";
     return `${diffDays}d`;
+  };
+
+  const formatMetaDate = (date: string | number | Date) => {
+    const d = typeof date === "string" || typeof date === "number" ? new Date(date) : date;
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
   const renderActionText = () => {
@@ -217,12 +245,12 @@ export function SocialActivityCard({
           >
             {activity.userName}
           </Text>
-          <Text> ranked </Text>
+          <Text>{isCompact ? " rated " : " ranked "}</Text>
           <Text style={styles.eventName} onPress={onClick}>
             {activity.eventName}
           </Text>
         </Text>
-        {activity.eventLocation ? (
+        {!isCompact && activity.eventLocation ? (
           <Text style={styles.locationText}>📍 {activity.eventLocation}</Text>
         ) : null}
       </View>
@@ -231,7 +259,7 @@ export function SocialActivityCard({
 
   // RENDER
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isCompact && styles.containerCompact]}>
       {/* Gallery modal (for rated activities with images) */}
       <Modal visible={galleryOpen} animationType="fade" transparent={false}>
         <View style={[styles.modalRoot, blackBackdrop ? styles.modalBlack : styles.modalWhite]}>
@@ -353,154 +381,161 @@ export function SocialActivityCard({
         ) : null}
       </View>
 
-      {/* Images row */}
-      {activity.reviewImages && activity.reviewImages.length > 0 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imagesRow}>
-          {activity.reviewImages.map((img, idx) => (
-            <TouchableOpacity key={idx} onPress={() => openGallery(idx)} style={styles.thumbWrap}>
-              <Image source={{ uri: img }} style={styles.thumb} />
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      )}
-
-      {/* Review text */}
-      {activity.reviewText ? (
-        <Text style={styles.reviewText}>
-          <Text style={styles.notesLabel}>Notes: </Text>
-          {activity.reviewText}
-        </Text>
-      ) : null}
-
-      {/* Interaction buttons */}
-      <View style={styles.actionsRow}>
-        <View style={styles.leftActions}>
-          <TouchableOpacity onPress={toggleLike} style={styles.actionBtn}>
-            <Heart size={20} color={isLiked ? "#ef4444" : "#374151"} fill={isLiked ? "#ef4444" : "none"} />
-          </TouchableOpacity>
-
-          <TouchableOpacity onPress={() => setShowComments((s) => !s)} style={styles.actionBtn}>
-            <MessageCircle size={20} color="#374151" />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.rightActions}>
-          <TouchableOpacity onPress={toggleSave} style={styles.actionBtn}>
-            <Bookmark size={20} color={isSaved ? "#111827" : "#374151"} />
-          </TouchableOpacity>
-          {isOwner && (
-            <TouchableOpacity
-              onPress={() =>
-                Alert.alert(
-                  "Delete Review",
-                  "Are you sure you want to delete this review?",
-                  [
-                    { text: "Cancel", style: "cancel" },
-                    { text: "Delete", style: "destructive", onPress: () => onDelete?.(activity.id) },
-                  ]
-                )
-              }
-              style={styles.actionBtn}
-            >
-              <Trash2 size={20} color="#ef4444" />
-            </TouchableOpacity>
+      {!isCompact && (
+        <>
+          {/* Images row */}
+          {activity.reviewImages && activity.reviewImages.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imagesRow}>
+              {activity.reviewImages.map((img, idx) => (
+                <TouchableOpacity key={idx} onPress={() => openGallery(idx)} style={styles.thumbWrap}>
+                  <Image source={{ uri: img }} style={styles.thumb} />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           )}
-        </View>
-      </View>
 
-      {/* Likes/comments summary */}
-      <TouchableOpacity onPress={() => setShowComments((s) => !s)}>
-        <Text style={styles.metaText}>
-          {localLikes} {localLikes === 1 ? "like" : "likes"} · {localCommentCount}{" "}
-          {localCommentCount === 1 ? "comment" : "comments"}
-        </Text>
-      </TouchableOpacity>
+          {/* Review text */}
+          {activity.reviewText ? (
+            <Text style={styles.reviewText}>
+              <Text style={styles.notesLabel}>Notes: </Text>
+              {activity.reviewText}
+            </Text>
+          ) : null}
 
-      {/* Comments area */}
-      {showComments && activity.comments.length > 0 && (
-        <View style={styles.commentsWrap}>
-          {activity.comments.map((c) => (
-            <View key={c.id} style={styles.commentRow}>
-              <TouchableOpacity onPress={() => onFriendClick?.(c.userName)} style={styles.commentAvatarWrap}>
-                {c.userAvatar ? (
-                  <Image source={{ uri: c.userAvatar }} style={styles.commentAvatar} />
-                ) : (
-                  <View style={styles.commentAvatarFallback}>
-                    <Text style={styles.commentAvatarText}>{c.userName.slice(0, 2).toUpperCase()}</Text>
-                  </View>
-                )}
+          {/* Interaction buttons */}
+          <View style={styles.actionsRow}>
+            <View style={styles.leftActions}>
+              <TouchableOpacity onPress={toggleLike} style={styles.actionBtn}>
+                <Heart size={20} color={isLiked ? "#ef4444" : "#374151"} fill={isLiked ? "#ef4444" : "none"} />
               </TouchableOpacity>
 
-              <View style={styles.commentContent}>
-                <Text style={styles.commentText}>
-                  <Text style={styles.commentUser} onPress={() => onFriendClick?.(c.userName)}>
-                    {c.userName}
-                  </Text>{" "}
-                  <Text style={styles.commentBody}>{c.text}</Text>
-                </Text>
-
-                <View style={styles.commentMetaRow}>
-                  <Text style={styles.commentTime}>{formatTimestamp(c.timestamp)}</Text>
-                  <TouchableOpacity onPress={() => onStartReply(c.id)}>
-                    <Text style={styles.replyButton}>Reply</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {replyingTo === c.id && (
-                  <View style={styles.replyRow}>
-                    <TextInput
-                      style={styles.replyInput}
-                      value={replyText}
-                      onChangeText={setReplyText}
-                      placeholder={`Reply to ${c.userName}...`}
-                      multiline={false}
-                    />
-                    <TouchableOpacity
-                      onPress={() => onPostLocalReply(c.id)}
-                      disabled={!replyText.trim()}
-                      style={[styles.sendBtn, !replyText.trim() && styles.sendBtnDisabled]}
-                    >
-                      <Send size={16} color="#fff" />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => { setReplyingTo(null); setReplyText(""); }}>
-                      <Text style={styles.cancelReply}>Cancel</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
+              <TouchableOpacity onPress={() => setShowComments((s) => !s)} style={styles.actionBtn}>
+                <MessageCircle size={20} color="#374151" />
+              </TouchableOpacity>
             </View>
-          ))}
-        </View>
-      )}
 
-      {/* Comment input */}
-      {showComments && (
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <View style={styles.commentInputRow}>
-            <View style={styles.youAvatar}>
-              {profile?.photoURL ? (
-                <Image source={{ uri: profile.photoURL }} style={styles.youAvatarImg} />
-              ) : (
-                <View style={styles.youAvatarFallback}>
-                  <Text style={styles.youAvatarText}>
-                    {(profile?.displayName || "?").slice(0, 2).toUpperCase()}
-                  </Text>
-                </View>
+            <View style={styles.rightActions}>
+              <TouchableOpacity onPress={toggleSave} style={styles.actionBtn}>
+                <Bookmark size={20} color={isSaved ? "#111827" : "#374151"} />
+              </TouchableOpacity>
+              {isOwner && (
+                <TouchableOpacity
+                  onPress={() =>
+                    Alert.alert(
+                      "Delete Review",
+                      "Are you sure you want to delete this review?",
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Delete", style: "destructive", onPress: () => onDelete?.(activity.id) },
+                      ]
+                    )
+                  }
+                  style={styles.actionBtn}
+                >
+                  <Trash2 size={20} color="#ef4444" />
+                </TouchableOpacity>
               )}
             </View>
-            <TextInput
-              style={styles.commentInput}
-              value={commentText}
-              onChangeText={setCommentText}
-              placeholder="Add a comment..."
-              returnKeyType="send"
-              onSubmitEditing={onPostLocalComment}
-            />
-            <TouchableOpacity onPress={onPostLocalComment} disabled={!commentText.trim()} style={[styles.sendBtn, !commentText.trim() && styles.sendBtnDisabled]}>
-              <Send size={16} color="#fff" />
-            </TouchableOpacity>
           </View>
-        </KeyboardAvoidingView>
+
+          {/* Likes/comments summary + review date */}
+          <View style={styles.metaRow}>
+            <TouchableOpacity onPress={() => setShowComments((s) => !s)}>
+              <Text style={styles.metaText}>
+                {localLikes} {localLikes === 1 ? "like" : "likes"} · {localCommentCount}{" "}
+                {localCommentCount === 1 ? "comment" : "comments"}
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.metaDateText}>{formatMetaDate(activity.timestamp)}</Text>
+          </View>
+
+          {/* Comments area */}
+          {showComments && localComments.length > 0 && (
+            <View style={styles.commentsWrap}>
+              {localComments.map((c) => (
+                <View key={c.id} style={styles.commentRow}>
+                  <TouchableOpacity onPress={() => onFriendClick?.(c.userName)} style={styles.commentAvatarWrap}>
+                    {c.userAvatar ? (
+                      <Image source={{ uri: c.userAvatar }} style={styles.commentAvatar} />
+                    ) : (
+                      <View style={styles.commentAvatarFallback}>
+                        <Text style={styles.commentAvatarText}>{c.userName.slice(0, 2).toUpperCase()}</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+
+                  <View style={styles.commentContent}>
+                    <Text style={styles.commentText}>
+                      <Text style={styles.commentUser} onPress={() => onFriendClick?.(c.userName)}>
+                        {c.userName}
+                      </Text>{" "}
+                      <Text style={styles.commentBody}>{c.text}</Text>
+                    </Text>
+
+                    <View style={styles.commentMetaRow}>
+                      <Text style={styles.commentTime}>{formatTimestamp(c.timestamp)}</Text>
+                      <TouchableOpacity onPress={() => onStartReply(c.id)}>
+                        <Text style={styles.replyButton}>Reply</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {replyingTo === c.id && (
+                      <View style={styles.replyRow}>
+                        <TextInput
+                          style={styles.replyInput}
+                          value={replyText}
+                          onChangeText={setReplyText}
+                          placeholder={`Reply to ${c.userName}...`}
+                          multiline={false}
+                        />
+                        <TouchableOpacity
+                          onPress={() => onPostLocalReply(c.id)}
+                          disabled={!replyText.trim()}
+                          style={[styles.sendBtn, !replyText.trim() && styles.sendBtnDisabled]}
+                        >
+                          <Send size={16} color="#fff" />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => { setReplyingTo(null); setReplyText(""); }}>
+                          <Text style={styles.cancelReply}>Cancel</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Comment input */}
+          {showComments && (
+            <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+              <View style={styles.commentInputRow}>
+                <View style={styles.youAvatar}>
+                  {profile?.photoURL ? (
+                    <Image source={{ uri: profile.photoURL }} style={styles.youAvatarImg} />
+                  ) : (
+                    <View style={styles.youAvatarFallback}>
+                      <Text style={styles.youAvatarText}>
+                        {(profile?.displayName || "?").slice(0, 2).toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <TextInput
+                  style={styles.commentInput}
+                  value={commentText}
+                  onChangeText={setCommentText}
+                  placeholder="Add a comment..."
+                  returnKeyType="send"
+                  onSubmitEditing={onPostLocalComment}
+                />
+                <TouchableOpacity onPress={onPostLocalComment} disabled={!commentText.trim()} style={[styles.sendBtn, !commentText.trim() && styles.sendBtnDisabled]}>
+                  <Send size={16} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </KeyboardAvoidingView>
+          )}
+        </>
       )}
     </View>
   );
@@ -519,6 +554,7 @@ function getRatingColors(rating: number) {
 
 const styles = StyleSheet.create({
   container: { marginBottom: 18, backgroundColor: "#fff", padding: 12, borderRadius: 10 },
+  containerCompact: { marginBottom: 4.5 },
   headerRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   avatarWrap: { width: 50, height: 50, borderRadius: 25, overflow: "hidden", backgroundColor: "#E5E7EB" },
   avatar: { width: "100%", height: "100%" },
@@ -553,6 +589,8 @@ const styles = StyleSheet.create({
   actionBtn: { padding: 6 },
 
   metaText: { marginTop: 8, color: "#6B7280", fontSize: 12 },
+  metaRow: { marginTop: 8, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  metaDateText: { color: "#6B7280", fontSize: 12 },
 
   commentsWrap: { marginTop: 10, borderTopWidth: 1, borderTopColor: "#E5E7EB", paddingTop: 10 },
   commentRow: { flexDirection: "row", marginBottom: 12, gap: 8 },

@@ -64,9 +64,10 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
         const activities: SocialActivity[] = data.map((r) => ({
           id: r.id,
           action: 'rated' as const,
-          userName: r.friendName || 'Anonymous',
+          userName: r.friendName || r.authorUsername || r.username || 'Anonymous',
           userAvatar: r.friendAvatar || undefined,
-          authorId: r.author,
+          authorId: r.author || r.authorId || r.userId || r.uid || r.authorUid || '',
+          eventId: r.event || r.eventId || '',
           eventName: r.eventName || '',
           rating: r.rating,
           reviewText: r.comment || '',
@@ -233,7 +234,7 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
                 <TouchableOpacity
                   key={user.id}
                   style={styles.leaderboardRow}
-                  onPress={() => onNavigate('friendProfile', undefined, { friendName: user.name })}
+                  onPress={() => onNavigate('friendProfile', undefined, { friendName: user.id || user.name })}
                 >
                   {/* Rank */}
                   <View style={styles.rankContainer}>
@@ -285,11 +286,12 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
               <SocialActivityCard
                 key={activity.id}
                 activity={activity}
-                onClick={() => onNavigate('event', activity.eventName)}
-                onFriendClick={(friendName) => onNavigate('friendProfile', undefined, { friendName })}
+                onClick={() => onNavigate('event', activity.eventId || activity.eventName)}
+                onFriendClick={() => onNavigate('friendProfile', undefined, { friendName: activity.authorId || activity.userName })}
                 onLike={handleReviewLike}
                 onPostComment={handleReviewComment}
                 onDelete={handleReviewDelete}
+                compact
               />
             ))}
           </View>
