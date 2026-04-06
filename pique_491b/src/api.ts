@@ -58,6 +58,11 @@ export const apiRegister = (data: { fullName: string; username: string; dateOfBi
 export const apiEnsureProfile = () =>
   apiFetch('/api/auth/ensure-profile', { method: 'POST' });
 
+export const apiGetEmailAuthStatus = (email: string) =>
+  apiPublicFetch<{ exists: boolean; providers: string[]; hasPassword: boolean; primaryAuthProvider?: string }>(
+    `/api/auth/email-auth-status?email=${encodeURIComponent(email.trim().toLowerCase())}`
+  );
+
 // ── Events ──
 export const apiGetEvents = (params?: { category?: string; search?: string }) => {
   const qs = new URLSearchParams();
