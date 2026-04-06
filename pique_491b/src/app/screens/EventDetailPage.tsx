@@ -27,7 +27,7 @@ import {
   Navigation,
   Bookmark,
 } from "lucide-react-native";
-import { apiGetEvent, apiCreateBooking, apiGetReviews } from '@/api';
+import { apiGetEvent, apiCreateBooking, apiGetReviews, apiToggleLike } from '@/api';
 import { useAuth } from '@/context/AuthContext';
 
 // ----- Types (adjust to your app) -----
@@ -98,8 +98,9 @@ export function EventDetailScreen({
   onNavigate,
   activeTab,
 }: Props) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [event, setEvent] = useState<Event | null>(null);
+  const [isBookmarked, setIsBookmarked] = useState(false);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [booking, setBooking] = useState(false);
@@ -128,6 +129,12 @@ export function EventDetailScreen({
 
     return () => { cancelled = true; };
   }, [eventId]);
+
+  // Bookmark state from user profile (Firestore likedEvents), kept in sync with optimistic toggles
+  useEffect(() => {
+    const liked: string[] = profile?.likedEvents ?? [];
+    setIsBookmarked(liked.includes(eventId));
+  }, [eventId, profile?.likedEvents]);
 
   const allImages = useMemo(
     () => event
@@ -260,6 +267,18 @@ export function EventDetailScreen({
     } catch (err) {
       console.error('Booking error:', err);
       setBooking(false);
+    }
+  };
+
+  const handleBookmarkPress = async () => {
+    if (!user?.uid || !event) return;
+    const was = isBookmarked;
+    setIsBookmarked(!was);
+    try {
+      await apiToggleLike(event.id);
+    } catch (err) {
+      setIsBookmarked(was);
+      console.error('Bookmark error:', err);
     }
   };
 
@@ -513,13 +532,19 @@ export function EventDetailScreen({
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={() => {}}
-              style={styles.actionBtn}
+              onPress={handleBookmarkPress}
+              style={[styles.actionBtn, isBookmarked && styles.actionBtnBookmarked]}
               accessibilityRole="button"
-              accessibilityLabel="Bookmark"
+              accessibilityLabel={isBookmarked ? 'Bookmarked' : 'Bookmark'}
             >
-              <Bookmark size={16} color="#111" />
-              <Text style={styles.actionText}>Bookmark</Text>
+              <Bookmark
+                size={16}
+                color={isBookmarked ? '#111827' : '#111'}
+                fill={isBookmarked ? '#111827' : 'none'}
+              />
+              <Text style={[styles.actionText, isBookmarked && styles.actionTextBookmarked]}>
+                {isBookmarked ? 'Bookmarked' : 'Bookmark'}
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -673,6 +698,12 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   actionText: { fontSize: 14, fontWeight: "600", color: "#111" },
+  actionBtnBookmarked: {
+    backgroundColor: "#E5E7EB",
+    borderWidth: 1,
+    borderColor: "#9CA3AF",
+  },
+  actionTextBookmarked: { color: "#111827", fontWeight: "700" },
 
   section: { marginBottom: 28 },
   sectionTitle: { fontSize: 16, fontWeight: "700", color: "#111", marginBottom: 10 },
