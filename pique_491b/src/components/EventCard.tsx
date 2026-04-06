@@ -31,6 +31,12 @@ type Props = {
 export function EventCard({ event, onPress, hideBookmark = false, isBookmarked = false, onBookmarkPress }: Props) {
   const [imageError, setImageError] = useState(false);
 
+  const formatRating = (rating: unknown): string => {
+    const numericRating = typeof rating === "number" ? rating : Number(rating);
+    if (!Number.isFinite(numericRating)) return "0.0";
+    return numericRating.toFixed(1);
+  };
+
   const renderPricePoints = (pricePoint: number | undefined) => {
     // Keep same visual semantics as web: "$$", etc.
     return Array.from({ length: Math.max(0, pricePoint || 0) }, () => "$").join("");
@@ -105,7 +111,7 @@ export function EventCard({ event, onPress, hideBookmark = false, isBookmarked =
 
           <View style={styles.ratingRow}>
             <Star size={12} color="#F59E0B" />
-            <Text style={styles.ratingText}>{event.rating}</Text>
+            <Text style={styles.ratingText}>{formatRating(event.rating)}</Text>
           </View>
 
           <View style={styles.distanceWrap}>

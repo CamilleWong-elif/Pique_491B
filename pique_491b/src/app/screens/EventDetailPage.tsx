@@ -60,6 +60,17 @@ type Props = {
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
 
+function computeReviewStats(
+  reviews: { rating?: number }[]
+): { rating: number; reviewCount: number } {
+  const rated = reviews.filter(
+    (r) => typeof r?.rating === "number" && Number.isFinite(r.rating)
+  ) as { rating: number }[];
+  if (rated.length === 0) return { rating: 0, reviewCount: 0 };
+  const avg = rated.reduce((sum, r) => sum + r.rating, 0) / rated.length;
+  return { rating: Number(avg.toFixed(1)), reviewCount: rated.length };
+}
+
 /** Map a raw Firestore document to the local Event shape. */
 function mapFirestoreToEvent(id: string, d: Record<string, any>): Event {
   const toDateStr = (value: any): string | undefined => {
@@ -117,8 +128,15 @@ export function EventDetailScreen({
           apiGetReviews(eventId).catch(() => []),
         ]);
         if (cancelled) return;
-        setEvent(mapFirestoreToEvent(data.id, data));
-        setReviews(reviewData ?? []);
+        const mappedEvent = mapFirestoreToEvent(data.id, data);
+        const nextReviews = reviewData ?? [];
+        const stats = computeReviewStats(nextReviews);
+        setEvent({
+          ...mappedEvent,
+          rating: stats.reviewCount > 0 ? stats.rating : mappedEvent.rating,
+          reviewCount: stats.reviewCount,
+        });
+        setReviews(nextReviews);
       } catch (err: any) {
         if (!cancelled) setFetchError(err?.message ?? "Failed to load event.");
       } finally {

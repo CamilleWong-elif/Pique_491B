@@ -11,6 +11,9 @@ export interface UserProfile {
   username?: string;
   followerCount?: string[];
   followingCount?: string[];
+  likedEvents?: string[];
+  likedReviews?: string[];
+  commentedReviews?: string[];
   updatedAt?: unknown;
 }
 
