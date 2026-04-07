@@ -104,8 +104,10 @@ export const apiUnfollowUser = (userId: string) =>
 export const apiGetFollowers = (userId: string) =>
   apiFetch(`/api/users/${userId}/followers`);
 
-export const apiGetFollowing = (userId: string) =>
-  apiFetch(`/api/users/${userId}/following`);
+export const apiGetFollowing = (userId?: string) =>
+  userId
+    ? apiFetch(`/api/users/${userId}/following`)
+    : apiFetch('/api/users/me/following');
 
 // ── Bookings ──
 export const apiGetBookings = () =>
