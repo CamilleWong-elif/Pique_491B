@@ -1,12 +1,12 @@
 import { EventCard } from '@/components/EventCard';
 import { NavigationBar } from '@/components/NavigationBar';
 import { auth } from "@/firebase";
-import { apiGetEvents, apiGetUsers } from '@/api';
+import { apiGetEvents, apiGetUsers, apiGetFollowing } from '@/api';
 import * as Location from 'expo-location';
 import { ArrowLeft, CircleHelp, Crosshair, Star, Users, X } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Dimensions, Image, PanResponder, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Circle, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Calculate distance between two lat/lng points in miles using Haversine formula
@@ -22,7 +22,8 @@ const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: numbe
   return R * c;
 };
 
-const MAX_DISTANCE_MILES = 50;
+const IN_RANGE_DISTANCE_MILES = 50;
+const MIDPOINT_MAX_DISTANCE_MILES = 10;
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const categories = ['All', 'Music', 'Sports', 'Arts', 'Tech', 'Outdoors'];
@@ -37,6 +38,7 @@ interface ExplorePageProps {
 }
 
 export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, initialCategory, initialSearchQuery, }: ExplorePageProps) {
+  const MEET_IN_MIDDLE_PAGE_SIZE = 3;
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || '');
   const [selectedCategory, setSelectedCategory] = useState(initialCategory || 'All');
   const [showLegend, setShowLegend] = useState(false);
@@ -49,6 +51,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
   const [selectedFriendPreview, setSelectedFriendPreview] = useState<any | null>(null);
   const [previewAnchor, setPreviewAnchor] = useState<{ x: number; y: number } | null>(null);
   const [mapSize, setMapSize] = useState<{ width: number; height: number } | null>(null);
+  const [visibleMeetInMiddleCount, setVisibleMeetInMiddleCount] = useState(MEET_IN_MIDDLE_PAGE_SIZE);
   const insets = useSafeAreaInsets();
 
   const formattoMMDD = (startValue: any, endValue?: any): string | undefined => {
@@ -153,23 +156,24 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
     };
   }, [events, cityCoordsCache]);
 
-  // Fetch raw friends from Firestore
+  // Fetch raw friends from Firestore (only users you're following)
   useEffect(() => {
     const fetchFriends = async () => {
       try {
-        const friendsList = await apiGetUsers();
-        const mapped = friendsList.map((u: any) => ({
+        const followingList = await apiGetFollowing();
+        console.log('ExplorePage: following retrieved count:', followingList.length);
+        const mapped = followingList.map((u: any) => ({
           id: u.id,
-          name: u.name,
+          name: u.name || u.displayName || 'Unknown',
           lat: u.lat || 0,
           lng: u.lng || 0,
-          photoURL: u.photoURL ?? u.avatar ?? null,
+          photoURL: u.photoURL ?? u.avatar ?? u.avatarDataUrl ?? null,
         }));
 
         setFriends(mapped);
         setLoading(false);
       } catch (error) {
-        console.error("Error fetching friends:", error);
+        console.error("Error fetching following:", error);
         setLoading(false);
       }
     };
@@ -259,17 +263,23 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
     })
   ).current;
 
-  const { filteredEvents, filteredFriends } = useMemo(() => {
+  const {
+    filteredEvents,
+    filteredFriends,
+    meetInMiddlePoint,
+    meetInMiddleRadiusMiles,
+    meetInMiddleEvents,
+    meetInMiddleParticipantCount,
+  } = useMemo(() => {
     const withinDistance = (coords: { lat: number; lng: number } | null) => {
       if (!coords) return false;
       if (!userLocation) return true;
-      return calculateDistance(userLocation.lat, userLocation.lng, coords.lat, coords.lng) <= MAX_DISTANCE_MILES;
+      return calculateDistance(userLocation.lat, userLocation.lng, coords.lat, coords.lng) <= IN_RANGE_DISTANCE_MILES;
     };
 
     const normalizedQuery = searchQuery.trim().toLowerCase();
 
-    const eventsInRange = events.filter((event: any) => withinDistance(getEventCoords(event)));
-    const eventsWithoutFood = eventsInRange.filter((event: any) => event.category !== 'Food & Drink');
+    const eventsWithoutFood = events.filter((event: any) => event.category !== 'Food & Drink');
     const eventsByCategory = selectedCategory === 'All'
       ? eventsWithoutFood
       : eventsWithoutFood.filter((event: any) => event.category === selectedCategory);
@@ -289,6 +299,8 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
         })
       : eventsByCategory;
 
+    const eventsInRange = eventsBySearch.filter((event: any) => withinDistance(getEventCoords(event)));
+
     const friendsInRange = friends.filter((friend: any) =>
       withinDistance(
         Number.isFinite(friend?.lat) && Number.isFinite(friend?.lng)
@@ -300,11 +312,73 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
       ? friendsInRange.filter((friend: any) => String(friend.name || '').toLowerCase().includes(normalizedQuery))
       : friendsInRange;
 
+    const friendsWithinMidpointDistance = friends.filter((friend: any) => {
+      if (!userLocation) return false;
+      if (!Number.isFinite(friend?.lat) || !Number.isFinite(friend?.lng)) return false;
+      return calculateDistance(userLocation.lat, userLocation.lng, friend.lat, friend.lng) <= MIDPOINT_MAX_DISTANCE_MILES;
+    });
+
+    const participantCoords: Array<{ lat: number; lng: number }> = friendsWithinMidpointDistance
+      .filter((friend: any) => Number.isFinite(friend?.lat) && Number.isFinite(friend?.lng))
+      .map((friend: any) => ({ lat: friend.lat, lng: friend.lng }));
+
+    if (userLocation) {
+      participantCoords.push({ lat: userLocation.lat, lng: userLocation.lng });
+    }
+
+    let midpoint: { lat: number; lng: number } | null = null;
+    let midpointRadiusMiles = 0;
+    let midpointEvents: any[] = [];
+
+    if (participantCoords.length > 0) {
+      const midpointLat = participantCoords.reduce((sum, p) => sum + p.lat, 0) / participantCoords.length;
+      const midpointLng = participantCoords.reduce((sum, p) => sum + p.lng, 0) / participantCoords.length;
+      midpoint = { lat: midpointLat, lng: midpointLng };
+
+      const distancesFromMidpoint = participantCoords.map((p) =>
+        calculateDistance(midpointLat, midpointLng, p.lat, p.lng)
+      );
+      const furthestDistance = distancesFromMidpoint.length > 0 ? Math.max(...distancesFromMidpoint) : 0;
+      midpointRadiusMiles = Math.min(furthestDistance, MIDPOINT_MAX_DISTANCE_MILES);
+
+      midpointEvents = eventsBySearch
+        .map((event: any) => {
+          const coords = getEventCoords(event);
+          if (!coords) return null;
+          const distanceFromMidpoint = calculateDistance(midpointLat, midpointLng, coords.lat, coords.lng);
+          const distanceFromUser = userLocation
+            ? calculateDistance(userLocation.lat, userLocation.lng, coords.lat, coords.lng)
+            : null;
+          const rawRating = Number(event?.rating);
+          return {
+            ...event,
+            midpointDistanceMiles: distanceFromMidpoint,
+            userDistanceMiles: distanceFromUser,
+            midpointRating: Number.isFinite(rawRating) ? rawRating : null,
+          };
+        })
+        .filter((event: any) => event && event.midpointDistanceMiles <= midpointRadiusMiles)
+        .sort((a: any, b: any) => {
+          const ratingA = a.midpointRating ?? -1;
+          const ratingB = b.midpointRating ?? -1;
+          if (ratingB !== ratingA) return ratingB - ratingA;
+          return a.midpointDistanceMiles - b.midpointDistanceMiles;
+        });
+    }
+
     return {
-      filteredEvents: eventsBySearch,
+      filteredEvents: eventsInRange,
       filteredFriends: friendsBySearch,
+      meetInMiddlePoint: midpoint,
+      meetInMiddleRadiusMiles: midpointRadiusMiles,
+      meetInMiddleEvents: midpointEvents,
+      meetInMiddleParticipantCount: participantCoords.length,
     };
   }, [events, friends, searchQuery, selectedCategory, userLocation, cityCoordsCache]);
+
+  useEffect(() => {
+    setVisibleMeetInMiddleCount(MEET_IN_MIDDLE_PAGE_SIZE);
+  }, [meetInMiddleEvents, MEET_IN_MIDDLE_PAGE_SIZE]);
 
   return (
     <View style={styles.container}>
@@ -342,6 +416,15 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
         .map((event: any) => {
           const coords = getEventCoords(event);
           if (!coords) return null;
+          const isMeetInMiddleEvent =
+            !!meetInMiddlePoint &&
+            meetInMiddleRadiusMiles > 0 &&
+            calculateDistance(
+              meetInMiddlePoint.lat,
+              meetInMiddlePoint.lng,
+              coords.lat,
+              coords.lng
+            ) <= meetInMiddleRadiusMiles;
           const eventImageUri =
             event?.imageUrl ??
             event?.image ??
@@ -351,6 +434,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
         <Marker
           key={event.id}
           coordinate={{ latitude: coords.lat, longitude: coords.lng }}
+          zIndex={isMeetInMiddleEvent ? 3 : 1}
           onPress={(e) => {
             (e as any)?.stopPropagation?.();
             setSelectedFriendPreview(null);
@@ -358,7 +442,13 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
             updatePreviewAnchor(coords);
           }}
         >
-          <View style={[styles.markerCircle, styles.markerEvent]}>
+          <View
+            style={[
+              styles.markerCircle,
+              styles.markerEvent,
+              isMeetInMiddleEvent && styles.markerEventMidpointMatch,
+            ]}
+          >
             {eventImageUri ? (
               <Image source={{ uri: eventImageUri }} style={styles.markerImage} />
             ) : (
@@ -397,6 +487,30 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
         </Marker>
           );
         })}
+
+      {meetInMiddlePoint && meetInMiddleRadiusMiles > 0 ? (
+        <>
+          <Circle
+            center={{ latitude: meetInMiddlePoint.lat, longitude: meetInMiddlePoint.lng }}
+            radius={meetInMiddleRadiusMiles * 1609.34}
+            strokeColor="rgba(192, 132, 252, 0.8)"
+            fillColor="rgba(192, 132, 252, 0.18)"
+            strokeWidth={2}
+          />
+          <Marker
+            coordinate={{ latitude: meetInMiddlePoint.lat, longitude: meetInMiddlePoint.lng }}
+            anchor={{ x: 0.5, y: 0.5 }}
+            onPress={(e) => {
+              (e as any)?.stopPropagation?.();
+              clearPreviews();
+            }}
+          >
+            <View style={[styles.markerCircle, styles.markerMidpoint]}>
+              <Text style={styles.markerFallbackText}>M</Text>
+            </View>
+          </Marker>
+        </>
+      ) : null}
     </MapView>
 
     {/* Marker preview overlay (anchored beside marker) */}
@@ -555,6 +669,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
               { color: '#4ade80', label: 'Friends' },
               { color: '#c084fc', label: 'Midpoint' },
               { color: '#facc15', label: 'Suggested' },
+              { color: '#7c3aed', label: 'Midpoint Recommended Events' },
             ].map((item) => (
               <View key={item.label} style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: item.color }]} />
@@ -592,23 +707,49 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
               <Text style={styles.suggestedTitle}>Meet in the Middle</Text>
             </View>
             <Text style={styles.suggestedSubtitle}>
-              Events closest to you and your {filteredFriends.length} friends
+              {meetInMiddleParticipantCount > 0
+                ? `Events inside a ${meetInMiddleRadiusMiles.toFixed(1)} mile midpoint radius (${Math.max(meetInMiddleParticipantCount - 1, 0)} friends) · distance shown from you`
+                : 'Add friend locations to calculate a midpoint radius'}
             </Text>
-            {filteredEvents.slice(0, 3).map((event: any, index: number) => (
+            {meetInMiddleEvents.slice(0, visibleMeetInMiddleCount).map((event: any, index: number) => (
               <TouchableOpacity
                 key={event.id}
                 style={styles.suggestedEvent}
                 onPress={() => onNavigate('event', event.id)}
               >
                 <View style={styles.suggestedEventContent}>
-                  <View style={styles.rankBadge}>
-                    <Text style={styles.rankText}>#{index + 1}</Text>
+                  <View style={styles.suggestedEventMain}>
+                    <View style={styles.rankBadge}>
+                      <Text style={styles.rankText}>#{index + 1}</Text>
+                    </View>
+                    <Text style={styles.suggestedEventName}>{event.name}</Text>
                   </View>
-                  <Text style={styles.suggestedEventName}>{event.name}</Text>
+                  <View style={styles.suggestedEventSide}>
+                    <Text style={styles.suggestedEventRatingText}>
+                      {event.midpointRating != null ? event.midpointRating.toFixed(1) : 'N/A'}
+                    </Text>
+                    <Text style={styles.suggestedEventDistanceInline}>
+                      {event.userDistanceMiles != null
+                        ? `${event.userDistanceMiles.toFixed(1)} mi from you`
+                        : `${event.midpointDistanceMiles.toFixed(1)} mi from midpoint`}
+                    </Text>
+                  </View>
                 </View>
               </TouchableOpacity>
             ))}
-            {filteredEvents.length === 0 && (
+            {visibleMeetInMiddleCount < meetInMiddleEvents.length && (
+              <TouchableOpacity
+                style={styles.showMoreButton}
+                onPress={() =>
+                  setVisibleMeetInMiddleCount((prev) =>
+                    Math.min(prev + MEET_IN_MIDDLE_PAGE_SIZE, meetInMiddleEvents.length)
+                  )
+                }
+              >
+                <Text style={styles.showMoreText}>Show more</Text>
+              </TouchableOpacity>
+            )}
+            {meetInMiddleEvents.length === 0 && (
               <Text style={styles.emptyText}>No suggested events</Text>
             )}
           </View>
@@ -679,8 +820,16 @@ const styles = StyleSheet.create({
   markerEvent: {
     borderColor: '#facc15', // Suggested (matches legend)
   },
+  markerEventMidpointMatch: {
+    borderColor: '#7c3aed',
+    borderWidth: 3,
+  },
   markerFriend: {
     borderColor: '#4ade80', // Friends (matches legend)
+  },
+  markerMidpoint: {
+    borderColor: '#c084fc',
+    backgroundColor: '#faf5ff',
   },
   markerImage: {
     width: '100%',
@@ -976,8 +1125,27 @@ const styles = StyleSheet.create({
   },
   suggestedEventContent: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  suggestedEventMain: {
+    flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flex: 1,
+    paddingRight: 8,
+  },
+  suggestedEventSide: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    minWidth: 64,
+    gap: 4,
+  },
+  suggestedEventRatingText: {
+    fontSize: 11,
+    color: '#4b5563',
+    fontWeight: '700',
   },
   rankBadge: {
     backgroundColor: '#eab308',
@@ -995,6 +1163,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#111827',
     flex: 1,
+  },
+  suggestedEventDistanceInline: {
+    fontSize: 11,
+    color: '#6d28d9',
+    fontWeight: '600',
+  },
+  showMoreButton: {
+    marginTop: 4,
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 9999,
+    backgroundColor: '#ede9fe',
+  },
+  showMoreText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#5b21b6',
   },
   sectionTitle: {
     fontSize: 16,

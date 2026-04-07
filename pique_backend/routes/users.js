@@ -49,6 +49,44 @@ router.get("/me", authenticate, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/users/me/following — Get current user's following list
+// ---------------------------------------------------------------------------
+router.get("/me/following", authenticate, async (req, res) => {
+  try {
+    const userDoc = await db.collection("users").doc(req.user.uid).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: "User profile not found" });
+    }
+
+    const followingUids = userDoc.data().followingCount || [];
+    if (followingUids.length === 0) return res.json([]);
+
+    const following = [];
+    for (let i = 0; i < followingUids.length; i += 30) {
+      const batch = followingUids.slice(i, i + 30);
+      const snap = await db.collection("users").where("__name__", "in", batch).get();
+      snap.docs.forEach((d) =>
+        following.push({
+          id: d.id,
+          displayName: d.data().displayName || "",
+          username: d.data().username || "",
+          avatar: d.data().avatarDataUrl || d.data().avatar || d.data().photoURL || "",
+          avatarDataUrl: d.data().avatarDataUrl || null,
+          photoURL: d.data().photoURL || null,
+          lat: d.data().lat || 0,
+          lng: d.data().lng || 0,
+        })
+      );
+    }
+
+    return res.json(following);
+  } catch (err) {
+    console.error("GET /api/users/me/following error:", err);
+    return res.status(500).json({ error: "Failed to fetch following" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/users/check-username/:username — Check if a username is available
 // ---------------------------------------------------------------------------
 router.get("/check-username/:username", authenticate, async (req, res) => {
