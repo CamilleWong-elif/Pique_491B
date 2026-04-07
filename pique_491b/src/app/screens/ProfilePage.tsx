@@ -122,12 +122,13 @@ export function ProfilePage({
     id: e.id,
     name: e.name ?? '',
     imageUrl: e.imageUrl ?? e.image ?? undefined,
-    startDate: e.date ?? e.startDate ?? undefined,
+    startDate: e.date ?? e.startDate ?? e.createdAt ?? undefined,
     category: e.categories?.[0] ?? e.category ?? undefined,
     city: e.city ?? (e.location ? e.location.split(',')[0]?.trim() : undefined),
     pricePoint: e.pricePoint ?? 0,
     rating: e.rating ?? 0,
     distance: e.distance ?? undefined,
+    createdAt: e.createdAt ?? undefined,
   });
 
   // Fetch all event data
@@ -176,21 +177,22 @@ export function ProfilePage({
   }, [user?.uid, JSON.stringify(profile?.likedEvents ?? [])]);
 
   // Sorting
+  const parseDate = (e: Event): number => {
+    for (const field of [e.startDate, e.createdAt]) {
+      if (!field) continue;
+      const t = new Date(field).getTime();
+      if (!isNaN(t)) return t;
+    }
+    return 0;
+  };
+
   const sortEvents = useCallback((events: Event[], sortBy: SortKey): Event[] => {
     const sorted = [...events];
     switch (sortBy) {
       case 'latest':
-        return sorted.sort((a, b) => {
-          const da = a.startDate ? new Date(a.startDate).getTime() : 0;
-          const db2 = b.startDate ? new Date(b.startDate).getTime() : 0;
-          return db2 - da;
-        });
+        return sorted.sort((a, b) => parseDate(b) - parseDate(a));
       case 'oldest':
-        return sorted.sort((a, b) => {
-          const da = a.startDate ? new Date(a.startDate).getTime() : 0;
-          const db2 = b.startDate ? new Date(b.startDate).getTime() : 0;
-          return da - db2;
-        });
+        return sorted.sort((a, b) => parseDate(a) - parseDate(b));
       case 'name-asc':
         return sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
       case 'name-desc':
@@ -435,7 +437,7 @@ export function ProfilePage({
               <View style={styles.contentHeader}>
                 <Text style={styles.contentTitle}>
                   {activeTab === 'posted' ? 'Events Posted' :
-                   activeTab === 'liked' ? 'Liked/Saved Events' :
+                   activeTab === 'liked' ? 'Liked Events' :
                    'Booked Events'}
                 </Text>
 

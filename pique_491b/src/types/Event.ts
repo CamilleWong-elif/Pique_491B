@@ -9,4 +9,5 @@ export type Event = {
   pricePoint?: number;
   rating?: number;
   distance?: number;
+  createdAt?: string;
 };
