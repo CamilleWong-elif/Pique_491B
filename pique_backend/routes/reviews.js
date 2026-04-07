@@ -75,20 +75,19 @@ router.get("/", authenticate, async (req, res) => {
   try {
     const { eventId } = req.query;
 
-    let query = db.collection("reviews").orderBy("createdAt", "desc");
-
-    if (eventId) {
-      query = db
-        .collection("reviews")
-        .where("event", "==", eventId)
-        .orderBy("createdAt", "desc");
-    }
+    let query = eventId
+      ? db.collection("reviews").where("event", "==", eventId)
+      : db.collection("reviews").orderBy("createdAt", "desc");
 
     const snapshot = await query.limit(50).get();
     const reviews = snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
     }));
+
+    if (eventId) {
+      reviews.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    }
 
     return res.json(reviews);
   } catch (err) {
@@ -103,16 +102,10 @@ router.get("/", authenticate, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/friends", authenticate, async (req, res) => {
   try {
-    const friendsSnap = await db
-      .collection("users")
-      .doc(req.user.uid)
-      .collection("friends")
-      .get();
-    const friendIds = friendsSnap.docs.map((doc) => doc.id);
-
-    if (friendIds.length === 0) {
-      return res.json([]);
-    }
+    const userDoc = await db.collection("users").doc(req.user.uid).get();
+    const userData = userDoc.exists ? userDoc.data() : {};
+    // Include the current user's own reviews alongside people they follow
+    const friendIds = [req.user.uid, ...(userData.followingCount || [])];
 
     // Firestore 'in' queries support max 30 items
     const allReviews = [];
@@ -121,7 +114,6 @@ router.get("/friends", authenticate, async (req, res) => {
       const snap = await db
         .collection("reviews")
         .where("author", "in", batch)
-        .orderBy("createdAt", "desc")
         .limit(50)
         .get();
 
@@ -140,6 +132,106 @@ router.get("/friends", authenticate, async (req, res) => {
   } catch (err) {
     console.error("GET /api/reviews/friends error:", err);
     return res.status(500).json({ error: "Failed to fetch friend reviews" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/reviews/:reviewId/like — Toggle like on a review
+// ---------------------------------------------------------------------------
+router.post("/:reviewId/like", authenticate, async (req, res) => {
+  try {
+    const reviewRef = db.collection("reviews").doc(req.params.reviewId);
+    const reviewDoc = await reviewRef.get();
+    if (!reviewDoc.exists) {
+      return res.status(404).json({ error: "Review not found" });
+    }
+
+    const data = reviewDoc.data();
+    const likedBy = data.likedBy || [];
+    const isLiked = likedBy.includes(req.user.uid);
+
+    const userRef = db.collection("users").doc(req.user.uid);
+
+    if (isLiked) {
+      await reviewRef.update({
+        likedBy: FieldValue.arrayRemove(req.user.uid),
+        likes: FieldValue.increment(-1),
+      });
+      await userRef.set({ likedReviews: FieldValue.arrayRemove(req.params.reviewId) }, { merge: true });
+    } else {
+      await reviewRef.update({
+        likedBy: FieldValue.arrayUnion(req.user.uid),
+        likes: FieldValue.increment(1),
+      });
+      await userRef.set({ likedReviews: FieldValue.arrayUnion(req.params.reviewId) }, { merge: true });
+    }
+
+    return res.json({ liked: !isLiked });
+  } catch (err) {
+    console.error("POST /api/reviews/:reviewId/like error:", err);
+    return res.status(500).json({ error: "Failed to toggle like" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/reviews/:reviewId/comments — Get comments for a review
+// ---------------------------------------------------------------------------
+router.get("/:reviewId/comments", authenticate, async (req, res) => {
+  try {
+    const reviewDoc = await db.collection("reviews").doc(req.params.reviewId).get();
+    if (!reviewDoc.exists) {
+      return res.status(404).json({ error: "Review not found" });
+    }
+
+    const snapshot = await db
+      .collection("reviews")
+      .doc(req.params.reviewId)
+      .collection("comments")
+      .orderBy("createdAt", "asc")
+      .get();
+
+    const comments = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    return res.json(comments);
+  } catch (err) {
+    console.error("GET /api/reviews/:reviewId/comments error:", err);
+    return res.status(500).json({ error: "Failed to fetch comments" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/reviews/:reviewId/comments — Post a comment on a review
+// ---------------------------------------------------------------------------
+router.post("/:reviewId/comments", authenticate, async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: "Comment text is required" });
+    }
+
+    const reviewRef = db.collection("reviews").doc(req.params.reviewId);
+    const reviewDoc = await reviewRef.get();
+    if (!reviewDoc.exists) {
+      return res.status(404).json({ error: "Review not found" });
+    }
+
+    const userDoc = await db.collection("users").doc(req.user.uid).get();
+    const userData = userDoc.exists ? userDoc.data() : {};
+
+    const commentData = {
+      author: req.user.uid,
+      userName: userData.displayName || "Anonymous",
+      userAvatar: userData.avatar || null,
+      text: text.trim(),
+      createdAt: new Date().toISOString(),
+    };
+
+    const docRef = await reviewRef.collection("comments").add(commentData);
+    await reviewRef.update({ commentCount: FieldValue.increment(1) });
+
+    return res.status(201).json({ id: docRef.id, ...commentData });
+  } catch (err) {
+    console.error("POST /api/reviews/:reviewId/comments error:", err);
+    return res.status(500).json({ error: "Failed to post comment" });
   }
 });
 
