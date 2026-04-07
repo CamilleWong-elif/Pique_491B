@@ -1,10 +1,10 @@
 import { EventCard } from '@/components/EventCard';
 import { NavigationBar } from '@/components/NavigationBar';
 import { NotificationsModal } from '@/components/NotificationsModal';
-import { SocialActivityCard } from '@/components/SocialActivityCard';
+import { SocialActivity, SocialActivityCard } from '@/components/SocialActivityCard';
 import { SearchOverlay } from '@/components/SearchOverlay';
 import { useAuth } from '@/context/AuthContext';
-import { apiGetEvents, apiToggleLike } from '@/api';
+import { apiGetEvents, apiGetFriendReviews, apiGetReviewComments, apiPostReviewComment, apiToggleLike, apiToggleReviewLike } from '@/api';
 import { Bell, Menu, MessageCircle, Plus, Search, SlidersHorizontal, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -12,7 +12,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 
-const mockSocialActivities: any[] = [];
 const ALL_CATEGORIES = [
   'Music', 'Sports', 'Arts', 'Food & Drink', 'Tech', 'Outdoors', 'Comedy',
   'Film', 'Theater', 'Gaming', 'Fitness', 'Nightlife', 'Family', 'Education',
@@ -41,6 +40,7 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   const [notifications, setNotifications] = useState(mockNotifications);
   const [events, setEvents] = useState<any[]>([]);
   const [likedEventIds, setLikedEventIds] = useState<Set<string>>(new Set());
+  const [feedActivities, setFeedActivities] = useState<SocialActivity[]>([]);
   const insets = useSafeAreaInsets();
 
   // Filter state
@@ -129,6 +129,93 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
     };
     fetchEvents();
   }, []);
+
+  useEffect(() => {
+    const fetchFeedReviews = async () => {
+      try {
+        const data = await apiGetFriendReviews();
+        const activities = await Promise.all((data || []).map(async (r: any) => {
+          let comments: any[] = [];
+          try {
+            comments = await apiGetReviewComments(r.id);
+          } catch {
+            comments = Array.isArray(r.comments) ? r.comments : [];
+          }
+          return {
+          id: r.id,
+          action: 'rated',
+          userName: r.friendName || r.authorUsername || r.username || 'Anonymous',
+          userAvatar: r.friendAvatar || undefined,
+          authorId: r.author || r.authorId || r.userId || r.uid || r.authorUid || '',
+          eventId: r.event || r.eventId || '',
+          eventName: r.eventName || '',
+          rating: r.rating,
+          reviewText: r.comment || '',
+          reviewImages: r.images || [],
+          timestamp: r.createdAt,
+          isLiked: (r.likedBy || []).includes(user?.uid ?? ''),
+          likes: r.likes || 0,
+          comments,
+        };
+      })) as SocialActivity[];
+        setFeedActivities(activities);
+      } catch (error: any) {
+        console.error('HomePage: Error fetching activity feed reviews:', error?.message ?? error);
+        setFeedActivities([]);
+      }
+    };
+    fetchFeedReviews();
+  }, [user?.uid]);
+
+  const handleFeedReviewLike = async (activityId: string) => {
+    const current = feedActivities.find((a) => a.id === activityId);
+    if (!current) return;
+    const nextLiked = !current.isLiked;
+
+    setFeedActivities((prev) =>
+      prev.map((a) =>
+        a.id === activityId
+          ? {
+            ...a,
+            isLiked: nextLiked,
+            likes: Math.max(0, (a.likes || 0) + (nextLiked ? 1 : -1)),
+          }
+          : a
+      )
+    );
+
+    try {
+      await apiToggleReviewLike(activityId);
+    } catch (error: any) {
+      setFeedActivities((prev) =>
+        prev.map((a) =>
+          a.id === activityId
+            ? {
+              ...a,
+              isLiked: !nextLiked,
+              likes: Math.max(0, (a.likes || 0) + (nextLiked ? -1 : 1)),
+            }
+            : a
+        )
+      );
+      console.error('HomePage: Failed to toggle review like:', error?.message ?? error);
+    }
+  };
+
+  const handleFeedReviewComment = async (activityId: string, text: string) => {
+    try {
+      const posted = await apiPostReviewComment(activityId, text);
+      setFeedActivities((prev) =>
+        prev.map((a) =>
+          a.id === activityId
+            ? { ...a, comments: [...(a.comments || []), posted] }
+            : a
+        )
+      );
+    } catch (error: any) {
+      console.error('HomePage: Failed to post review comment:', error?.message ?? error);
+    }
+  };
 
   const unreadNotificationCount = notifications.filter((n: any) => !n.read).length;
 
@@ -385,16 +472,21 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
         {!isFiltered && (
           <View style={styles.feedContainer}>
             <Text style={styles.feedTitle}>Activity Feed</Text>
-            {mockSocialActivities.map((activity: any) => (
+            {feedActivities.map((activity) => (
               <SocialActivityCard
                 key={activity.id}
                 activity={activity}
-                onClick={() => onNavigate('event')}
-                onFriendClick={(friendName: string) =>
-                  onNavigate('friendProfile', undefined, { friendName })
+                onClick={() => onNavigate('event', activity.eventId || activity.eventName)}
+                onFriendClick={(userIdOrUsername: string) =>
+                  onNavigate('friendProfile', undefined, { friendName: userIdOrUsername })
                 }
+                onLike={handleFeedReviewLike}
+                onPostComment={handleFeedReviewComment}
               />
             ))}
+            {feedActivities.length === 0 && (
+              <Text style={styles.emptyFeedText}>No review activity yet. Follow friends or leave a review on an event.</Text>
+            )}
           </View>
         )}
 
@@ -740,6 +832,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 16,
     color: '#111827',
+  },
+  emptyFeedText: {
+    color: '#6b7280',
+    fontSize: 13,
+    marginBottom: 12,
   },
   // Filter Modal
   filterModalOverlay: {

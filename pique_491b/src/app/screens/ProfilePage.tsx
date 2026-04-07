@@ -11,10 +11,9 @@ import {
 import { EventCard } from '@/components/EventCard';
 import { NavigationBar } from '@/components/NavigationBar';
 import { useAuth } from '@/context/AuthContext';
-import { auth, storage } from '@/firebase';
 import type { Event } from '@/types/Event';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { Calendar, Camera, FileText, Heart, Pencil, Plus, X } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -59,6 +58,7 @@ export function ProfilePage({
   const [editingUsername, setEditingUsername] = useState('');
   const [editingBio, setEditingBio] = useState('');
   const [editingPhotoURI, setEditingPhotoURI] = useState<string | null>(null);
+  const [editingPhotoBase64, setEditingPhotoBase64] = useState<string | null>(null);
   const [usernameError, setUsernameError] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
   const [removedFollowerIds, setRemovedFollowerIds] = useState<Set<string>>(new Set());
@@ -68,11 +68,22 @@ export function ProfilePage({
   const [postedEvents, setPostedEvents] = useState<Event[]>([]);
   const [likedEvents, setLikedEvents] = useState<Event[]>([]);
   const [bookedEvents, setBookedEvents] = useState<Event[]>([]);
+  const [likedEventIds, setLikedEventIds] = useState<Set<string>>(new Set());
   const [loadingEvents, setLoadingEvents] = useState(true);
+
+  useEffect(() => {
+    const liked: string[] = profile?.likedEvents ?? [];
+    setLikedEventIds(new Set(liked));
+  }, [profile?.likedEvents]);
 
   const userName = profile?.displayName ?? user?.displayName ?? user?.email ?? 'User';
   const username = (profile as any)?.username ?? '';
-  const profilePicture = profile?.photoURL ?? (profile as any)?.avatar ?? user?.photoURL ?? DEFAULT_AVATAR;
+  const profilePicture =
+    (profile as any)?.avatarDataUrl ??
+    profile?.photoURL ??
+    (profile as any)?.avatar ??
+    user?.photoURL ??
+    DEFAULT_AVATAR;
   const bio = profile?.bio ?? '';
 
   const followerUids: string[] = profile?.followerCount ?? [];
@@ -135,7 +146,7 @@ export function ProfilePage({
         setPostedEvents(posted);
 
         // Filter liked events from all events
-        const likedIds: string[] = (profile as any)?.likedEvents ?? [];
+        const likedIds: string[] = profile?.likedEvents ?? [];
         const likedSet = new Set(likedIds);
         const liked = allEvents
           .filter((e: any) => likedSet.has(e.id))
@@ -162,7 +173,7 @@ export function ProfilePage({
     };
 
     fetchData();
-  }, [user?.uid]);
+  }, [user?.uid, JSON.stringify(profile?.likedEvents ?? [])]);
 
   // Sorting
   const sortEvents = useCallback((events: Event[], sortBy: SortKey): Event[] => {
@@ -213,6 +224,7 @@ export function ProfilePage({
     setEditingUsername(username);
     setEditingBio(bio);
     setEditingPhotoURI(null);
+    setEditingPhotoBase64(null);
     setUsernameError('');
     setShowEditProfile(true);
   };
@@ -227,10 +239,20 @@ export function ProfilePage({
       mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.7,
+      quality: 1,
     });
     if (!result.canceled && result.assets[0]) {
-      setEditingPhotoURI(result.assets[0].uri);
+      const optimized = await manipulateAsync(
+        result.assets[0].uri,
+        [{ resize: { width: 256, height: 256 } }],
+        { compress: 0.45, format: SaveFormat.JPEG, base64: true }
+      );
+      if (!optimized.base64) {
+        Alert.alert('Upload failed', 'Could not process selected image.');
+        return;
+      }
+      setEditingPhotoURI(optimized.uri);
+      setEditingPhotoBase64(optimized.base64);
     }
   };
 
@@ -241,7 +263,7 @@ export function ProfilePage({
   };
 
   const handleSaveProfile = async () => {
-    const uid = auth.currentUser?.uid;
+    const uid = user?.uid;
     if (!uid) return;
 
     if (!editingName.trim()) {
@@ -265,20 +287,8 @@ export function ProfilePage({
         username: editingUsername.toLowerCase().trim(),
       };
 
-      // Upload profile picture if changed
-      if (editingPhotoURI) {
-        try {
-          const response = await fetch(editingPhotoURI);
-          const blob = await response.blob();
-          const storageRef = ref(storage, `profilePictures/${uid}`);
-          await uploadBytes(storageRef, blob);
-          const downloadURL = await getDownloadURL(storageRef);
-          updates.photoURL = downloadURL;
-          updates.avatar = downloadURL;
-        } catch (uploadErr) {
-          console.error('Photo upload error:', uploadErr);
-          Alert.alert('Upload failed', 'Could not upload profile picture. Other changes will still be saved.');
-        }
+      if (editingPhotoBase64) {
+        updates.avatarDataUrl = `data:image/jpeg;base64,${editingPhotoBase64}`;
       }
 
       await apiUpdateMe(updates);
@@ -292,22 +302,41 @@ export function ProfilePage({
     }
   };
 
-  // Bookmark/like handler
+  // Bookmark/like handler (optimistic UI + backend; likedEventIds mirrors HomePage)
   const handleBookmarkPress = async (eventId?: string) => {
     if (!eventId || !user?.uid) return;
-    const likedIds: string[] = (profile as any)?.likedEvents ?? [];
-    const isLiked = likedIds.includes(eventId);
+    const wasLiked = likedEventIds.has(eventId);
+    const removedForRevert = wasLiked ? likedEvents.find(e => e.id === eventId) : undefined;
+    if (wasLiked) {
+      setLikedEventIds(prev => {
+        const n = new Set(prev);
+        n.delete(eventId);
+        return n;
+      });
+      setLikedEvents(prev => prev.filter(e => e.id !== eventId));
+    } else {
+      setLikedEventIds(prev => new Set(prev).add(eventId));
+      const existing = [...postedEvents, ...bookedEvents, ...likedEvents].find(e => e.id === eventId);
+      if (existing && !likedEvents.some(e => e.id === eventId)) {
+        setLikedEvents(prev => [...prev, existing]);
+      }
+    }
     try {
       await apiToggleLike(eventId);
-      if (isLiked) {
-        setLikedEvents(prev => prev.filter(e => e.id !== eventId));
-      } else {
-        const existing = [...postedEvents, ...bookedEvents].find(e => e.id === eventId);
-        if (existing) {
-          setLikedEvents(prev => [...prev, existing]);
-        }
-      }
     } catch (err) {
+      if (wasLiked) {
+        setLikedEventIds(prev => new Set(prev).add(eventId));
+        if (removedForRevert) {
+          setLikedEvents(prev => (prev.some(e => e.id === eventId) ? prev : [...prev, removedForRevert]));
+        }
+      } else {
+        setLikedEventIds(prev => {
+          const n = new Set(prev);
+          n.delete(eventId);
+          return n;
+        });
+        setLikedEvents(prev => prev.filter(e => e.id !== eventId));
+      }
       console.error('Bookmark error:', err);
     }
   };
@@ -326,6 +355,7 @@ export function ProfilePage({
         event={item}
         onPress={() => onNavigate('event', item.id)}
         onBookmarkPress={handleBookmarkPress}
+        isBookmarked={likedEventIds.has(item.id)}
         hideBookmark={activeTab === 'booked'}
       />
     </View>

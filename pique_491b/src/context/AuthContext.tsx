@@ -7,9 +7,14 @@ export interface UserProfile {
   displayName?: string;
   bio?: string;
   photoURL?: string;
+  avatarDataUrl?: string;
   username?: string;
   followerCount?: string[];
   followingCount?: string[];
+  /** Event IDs the user bookmarked (synced with POST /api/events/:id/like) */
+  likedEvents?: string[];
+  likedReviews?: string[];
+  commentedReviews?: string[];
   updatedAt?: unknown;
 }
 

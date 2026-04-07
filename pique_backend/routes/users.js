@@ -4,6 +4,7 @@ const { authenticate } = require("../middleware/auth");
 const { FieldValue } = require("firebase-admin/firestore");
 
 const router = express.Router();
+const MAX_AVATAR_DATA_URL_LENGTH = 500000;
 
 // ---------------------------------------------------------------------------
 // GET /api/users — List all users (excluding current user)
@@ -16,7 +17,8 @@ router.get("/", authenticate, async (req, res) => {
       .map((doc) => ({
         id: doc.id,
         name: doc.data().displayName || "Unknown",
-        avatar: doc.data().avatar || null,
+        avatar: doc.data().avatarDataUrl || doc.data().avatar || doc.data().photoURL || null,
+        avatarDataUrl: doc.data().avatarDataUrl || null,
         photoURL: doc.data().photoURL || null,
         lat: doc.data().lat || 0,
         lng: doc.data().lng || 0,
@@ -114,7 +116,8 @@ router.get("/:id", authenticate, async (req, res) => {
       displayName: data.displayName || "",
       username: data.username || "",
       bio: data.bio || "",
-      avatar: data.avatar || null,
+      avatar: data.avatarDataUrl || data.avatar || data.photoURL || null,
+      avatarDataUrl: data.avatarDataUrl || null,
       photoURL: data.photoURL || null,
       followerCount: data.followerCount || [],
       followingCount: data.followingCount || [],
@@ -149,7 +152,7 @@ router.get("/:id/followers", authenticate, async (req, res) => {
           id: d.id,
           name: d.data().displayName || "",
           username: d.data().username || "",
-          avatar: d.data().avatar || "",
+          avatar: d.data().avatarDataUrl || d.data().avatar || d.data().photoURL || "",
         })
       );
     }
@@ -183,7 +186,7 @@ router.get("/:id/following", authenticate, async (req, res) => {
           id: d.id,
           name: d.data().displayName || "",
           username: d.data().username || "",
-          avatar: d.data().avatar || "",
+          avatar: d.data().avatarDataUrl || d.data().avatar || d.data().photoURL || "",
         })
       );
     }
@@ -201,6 +204,7 @@ router.get("/:id/following", authenticate, async (req, res) => {
 router.post("/:id/follow", authenticate, async (req, res) => {
   try {
     const targetId = req.params.id;
+    const currentUid = req.user.uid;
     if (targetId === req.user.uid) {
       return res.status(400).json({ error: "Cannot follow yourself" });
     }
@@ -210,11 +214,23 @@ router.post("/:id/follow", authenticate, async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const myRef = db.collection("users").doc(req.user.uid);
+    const myRef = db.collection("users").doc(currentUid);
     const theirRef = db.collection("users").doc(targetId);
+    const myFriendRef = myRef.collection("friends").doc(targetId);
+    const batch = db.batch();
 
-    await myRef.update({ followingCount: FieldValue.arrayUnion(targetId) });
-    await theirRef.update({ followerCount: FieldValue.arrayUnion(req.user.uid) });
+    batch.update(myRef, { followingCount: FieldValue.arrayUnion(targetId) });
+    batch.update(theirRef, { followerCount: FieldValue.arrayUnion(currentUid) });
+    // Keep friends subcollection in sync with follow state.
+    batch.set(
+      myFriendRef,
+      {
+        uid: targetId,
+        createdAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+    await batch.commit();
 
     return res.json({ followed: true });
   } catch (err) {
@@ -229,12 +245,17 @@ router.post("/:id/follow", authenticate, async (req, res) => {
 router.post("/:id/unfollow", authenticate, async (req, res) => {
   try {
     const targetId = req.params.id;
+    const currentUid = req.user.uid;
 
-    const myRef = db.collection("users").doc(req.user.uid);
+    const myRef = db.collection("users").doc(currentUid);
     const theirRef = db.collection("users").doc(targetId);
+    const myFriendRef = myRef.collection("friends").doc(targetId);
+    const batch = db.batch();
 
-    await myRef.update({ followingCount: FieldValue.arrayRemove(targetId) });
-    await theirRef.update({ followerCount: FieldValue.arrayRemove(req.user.uid) });
+    batch.update(myRef, { followingCount: FieldValue.arrayRemove(targetId) });
+    batch.update(theirRef, { followerCount: FieldValue.arrayRemove(currentUid) });
+    batch.delete(myFriendRef);
+    await batch.commit();
 
     return res.json({ unfollowed: true });
   } catch (err) {
@@ -248,7 +269,7 @@ router.post("/:id/unfollow", authenticate, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.put("/me", authenticate, async (req, res) => {
   try {
-    const allowedFields = ["displayName", "bio", "avatar", "photoURL", "username", "lat", "lng"];
+    const allowedFields = ["displayName", "bio", "avatar", "photoURL", "avatarDataUrl", "username", "lat", "lng"];
     const updates = {};
 
     for (const field of allowedFields) {
@@ -259,6 +280,18 @@ router.put("/me", authenticate, async (req, res) => {
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: "No valid fields to update" });
+    }
+
+    if (updates.avatarDataUrl !== undefined) {
+      if (typeof updates.avatarDataUrl !== "string") {
+        return res.status(400).json({ error: "avatarDataUrl must be a string" });
+      }
+      if (!updates.avatarDataUrl.startsWith("data:image/")) {
+        return res.status(400).json({ error: "avatarDataUrl must be an image data URL" });
+      }
+      if (updates.avatarDataUrl.length > MAX_AVATAR_DATA_URL_LENGTH) {
+        return res.status(400).json({ error: "avatarDataUrl is too large" });
+      }
     }
 
     updates.updatedAt = new Date().toISOString();

@@ -5,6 +5,21 @@ const { FieldValue } = require("firebase-admin/firestore");
 
 const router = express.Router();
 
+function computeReviewStatsForEventReviews(reviews = []) {
+  const rated = reviews.filter(
+    (r) => typeof r?.rating === "number" && Number.isFinite(r.rating)
+  );
+  if (rated.length === 0) {
+    return { rating: 0, reviewCount: 0 };
+  }
+  const total = rated.reduce((sum, r) => sum + r.rating, 0);
+  const avg = total / rated.length;
+  return {
+    rating: Number(avg.toFixed(1)),
+    reviewCount: rated.length,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/events — Create a new event
 // Replaces: addDoc(collection(db, "events"), {...}) in CreateEventPage.tsx
@@ -92,8 +107,29 @@ router.get("/", authenticate, async (req, res) => {
       ...doc.data(),
     }));
 
+    const reviewsSnap = await db.collection("reviews").get();
+    const reviewsByEvent = new Map();
+    reviewsSnap.docs.forEach((doc) => {
+      const review = doc.data();
+      const eventId = review.event || review.eventId;
+      if (!eventId) return;
+      if (!reviewsByEvent.has(eventId)) reviewsByEvent.set(eventId, []);
+      reviewsByEvent.get(eventId).push(review);
+    });
+
+    const eventsWithStats = events.map((event) => {
+      const stats = computeReviewStatsForEventReviews(
+        reviewsByEvent.get(event.id) || []
+      );
+      return {
+        ...event,
+        rating: stats.rating,
+        reviewCount: stats.reviewCount,
+      };
+    });
+
     // Optional server-side filtering (client can also filter)
-    let filtered = events;
+    let filtered = eventsWithStats;
 
     const { category, search } = req.query;
 
@@ -159,7 +195,17 @@ router.get("/:id", authenticate, async (req, res) => {
     if (!doc.exists) {
       return res.status(404).json({ error: "Event not found" });
     }
-    return res.json({ id: doc.id, ...doc.data() });
+    const [eventFieldSnap, eventIdFieldSnap] = await Promise.all([
+      db.collection("reviews").where("event", "==", doc.id).get(),
+      db.collection("reviews").where("eventId", "==", doc.id).get(),
+    ]);
+    const reviewMap = new Map();
+    eventFieldSnap.docs.forEach((reviewDoc) => reviewMap.set(reviewDoc.id, reviewDoc.data()));
+    eventIdFieldSnap.docs.forEach((reviewDoc) => reviewMap.set(reviewDoc.id, reviewDoc.data()));
+    const stats = computeReviewStatsForEventReviews(
+      Array.from(reviewMap.values())
+    );
+    return res.json({ id: doc.id, ...doc.data(), ...stats });
   } catch (err) {
     console.error("GET /api/events/:id error:", err);
     return res.status(500).json({ error: "Failed to fetch event" });

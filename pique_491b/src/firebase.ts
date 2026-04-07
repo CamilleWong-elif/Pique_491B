@@ -23,6 +23,12 @@ if (!firebaseConfig?.apiKey) {
   );
 }
 
+if (!firebaseConfig?.storageBucket) {
+  throw new Error(
+    "Missing Firebase storage bucket. Set EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET in .env."
+  );
+}
+
 const config = {
   apiKey: firebaseConfig.apiKey,
   authDomain: firebaseConfig.authDomain,
