@@ -177,11 +177,7 @@ export function CreateEventPage({ onNavigate, onOpenMessages, unreadMessageCount
         Alert.alert('Missing info', 'Description is required.');
         return;
       }
-      if (photos.length === 0) {
-        Alert.alert('Missing info', 'Please add at least one photo.');
-        return;
-      }
-      if (selectedCategories.length === 0) {
+if (selectedCategories.length === 0) {
         Alert.alert('Missing info', 'Please select at least one category.');
         return;
       }
