@@ -8,7 +8,6 @@ import { Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, useCo
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Rect } from 'react-native-svg';
 
-const colorScheme = useColorScheme();
 const logo = require('@/assets/images/temp_logo.png');
 
 interface SignUpScreenProps {
@@ -17,6 +16,7 @@ interface SignUpScreenProps {
 }
 
 export function SignUpScreen({ onSignUp, onNavigateToLogin }: SignUpScreenProps) {
+  const colorScheme = useColorScheme();
   const [formData, setFormData] = useState({ fullName: '', username: '', email: '', password: '', confirmPassword: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
