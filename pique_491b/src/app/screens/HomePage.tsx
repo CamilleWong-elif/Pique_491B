@@ -435,6 +435,9 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
         </View>
 
         {/* Horizontal Carousel */}
+        {isFiltered && allFilteredEvents.length === 0 && (
+          <Text style={styles.emptyFeedText}>No events match the selected filters.</Text>
+        )}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -468,41 +471,39 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
           })}
         </ScrollView>
 
-        {/* Activity Feed — only show when no filters applied */}
-        {!isFiltered && (
-          <View style={styles.feedContainer}>
-            <Text style={styles.feedTitle}>Activity Feed</Text>
-            {feedActivities.map((activity) => ({ ...activity, isSaved: likedEventIds.has(activity.eventId || '') })).map((activity) => (
-              <SocialActivityCard
-                key={activity.id}
-                activity={activity}
-                onClick={() => onNavigate('event', activity.eventId || activity.eventName)}
-                onFriendClick={(userIdOrUsername: string) =>
-                  onNavigate('friendProfile', undefined, { friendName: userIdOrUsername })
+        {/* Activity Feed */}
+        <View style={styles.feedContainer}>
+          <Text style={styles.feedTitle}>Activity Feed</Text>
+          {feedActivities.map((activity) => ({ ...activity, isSaved: likedEventIds.has(activity.eventId || '') })).map((activity) => (
+            <SocialActivityCard
+              key={activity.id}
+              activity={activity}
+              onClick={() => onNavigate('event', activity.eventId || activity.eventName)}
+              onFriendClick={(userIdOrUsername: string) =>
+                onNavigate('friendProfile', undefined, { friendName: userIdOrUsername })
+              }
+              onLike={handleFeedReviewLike}
+              onSave={async (_activityId, saved) => {
+                const eventId = activity.eventId;
+                if (!eventId) return;
+                try {
+                  await apiToggleLike(eventId);
+                  setLikedEventIds(prev => {
+                    const next = new Set(prev);
+                    if (saved) next.add(eventId); else next.delete(eventId);
+                    return next;
+                  });
+                } catch (err) {
+                  console.error('Feed bookmark error:', err);
                 }
-                onLike={handleFeedReviewLike}
-                onSave={async (_activityId, saved) => {
-                  const eventId = activity.eventId;
-                  if (!eventId) return;
-                  try {
-                    await apiToggleLike(eventId);
-                    setLikedEventIds(prev => {
-                      const next = new Set(prev);
-                      if (saved) next.add(eventId); else next.delete(eventId);
-                      return next;
-                    });
-                  } catch (err) {
-                    console.error('Feed bookmark error:', err);
-                  }
-                }}
-                onPostComment={handleFeedReviewComment}
-              />
-            ))}
-            {feedActivities.length === 0 && (
-              <Text style={styles.emptyFeedText}>No review activity yet. Follow friends or leave a review on an event.</Text>
-            )}
-          </View>
-        )}
+              }}
+              onPostComment={handleFeedReviewComment}
+            />
+          ))}
+          {feedActivities.length === 0 && (
+            <Text style={styles.emptyFeedText}>No review activity yet. Follow friends or leave a review on an event.</Text>
+          )}
+        </View>
 
       </ScrollView>
 
