@@ -1,4 +1,5 @@
 import { Home, MapPin } from 'lucide-react-native';
+import { useAuth } from '@/context/AuthContext';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
@@ -10,6 +11,8 @@ interface NavigationBarProps {
   onOpenMessages: () => void;
   unreadMessageCount?: number;
 }
+
+const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1653771926391-d1b5608c90b2?w=400';
 
 function CommunityIcon({ isActive }: { isActive: boolean }) {
   const color = isActive ? '#000000' : '#9ca3af';
@@ -26,6 +29,14 @@ function CommunityIcon({ isActive }: { isActive: boolean }) {
 }
 
 export function NavigationBar({ currentPage, onNavigate, unreadMessageCount = 0 }: NavigationBarProps) {
+  const { profile, user } = useAuth();
+  const profilePicture =
+    (profile as any)?.avatarDataUrl ??
+    profile?.photoURL ??
+    (profile as any)?.avatar ??
+    user?.photoURL ??
+    DEFAULT_AVATAR;
+
   return (
     <View style={styles.wrapper}>
       <View style={styles.container}>
@@ -51,7 +62,7 @@ export function NavigationBar({ currentPage, onNavigate, unreadMessageCount = 0 
         {/* Profile */}
         <TouchableOpacity style={styles.navItem} onPress={() => onNavigate('profile')}>
           <Image
-            source={{ uri: 'https://images.unsplash.com/photo-1653771926391-d1b5608c90b2?w=400' }}
+            source={{ uri: profilePicture }}
             style={styles.avatar}
           />
           <Text style={[styles.label, currentPage === 'profile' && styles.labelActive]}>My Profile</Text>
