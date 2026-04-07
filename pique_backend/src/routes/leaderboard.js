@@ -16,13 +16,9 @@ router.get("/", authenticate, async (req, res) => {
     let users;
 
     if (mode === "friends") {
-      const friendsSnap = await db
-        .collection("users")
-        .doc(req.user.uid)
-        .collection("friends")
-        .get();
-
-      const friendIds = friendsSnap.docs.map((doc) => doc.id);
+      const userDoc = await db.collection("users").doc(req.user.uid).get();
+      const userData = userDoc.exists ? userDoc.data() : {};
+      const friendIds = [...(userData.followingCount || [])];
       // Include current user in friends leaderboard
       friendIds.push(req.user.uid);
 
