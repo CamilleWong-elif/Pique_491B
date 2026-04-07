@@ -180,6 +180,12 @@ export function ProfilePage({
   const parseDate = (e: Event): number => {
     for (const field of [e.startDate, e.createdAt]) {
       if (!field) continue;
+      // Handle MM/DD/YYYY format (stored by CreateEventPage)
+      const slashMatch = field.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (slashMatch) {
+        const [, m, d, y] = slashMatch;
+        return new Date(Number(y), Number(m) - 1, Number(d)).getTime();
+      }
       const t = new Date(field).getTime();
       if (!isNaN(t)) return t;
     }
