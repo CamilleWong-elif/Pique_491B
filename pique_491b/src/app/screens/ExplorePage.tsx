@@ -579,7 +579,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
       <TouchableOpacity
         activeOpacity={0.95}
         style={[styles.previewCardFriend, { left, top, width: CARD_W }]}
-        onPress={() => onNavigate('friendProfile', undefined, { friendName: selectedFriendPreview.name })}
+        onPress={() => onNavigate('friendProfile', undefined, { friendName: selectedFriendPreview.id || selectedFriendPreview.name })}
       >
         <View style={styles.previewFriendContent}>
           <View style={[styles.markerCircle, styles.markerFriend, { width: 54, height: 54, borderRadius: 27 }]}>
