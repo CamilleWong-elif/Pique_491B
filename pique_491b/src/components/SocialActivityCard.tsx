@@ -106,6 +106,7 @@ export function SocialActivityCard({
   const isOwner = !!activity.authorId && activity.authorId === user?.uid;
   const [isLiked, setIsLiked] = useState<boolean>(!!activity.isLiked);
   const [isSaved, setIsSaved] = useState<boolean>(!!activity.isSaved);
+  useEffect(() => { setIsSaved(!!activity.isSaved); }, [activity.isSaved]);
   const [localLikes, setLocalLikes] = useState<number>(activity.likes || 0);
   const [showComments, setShowComments] = useState<boolean>(false);
   const [localComments, setLocalComments] = useState<Comment[]>(activity.comments || []);
@@ -679,7 +680,7 @@ export function SocialActivityCard({
 
             <View style={styles.rightActions}>
               <TouchableOpacity onPress={toggleSave} style={styles.actionBtn}>
-                <Bookmark size={20} color={isSaved ? "#111827" : "#374151"} />
+                <Bookmark size={20} color={isSaved ? "#3b82f6" : "#374151"} fill={isSaved ? "#3b82f6" : "none"} />
               </TouchableOpacity>
               {isOwner && (
                 <TouchableOpacity
