@@ -16,7 +16,6 @@ interface SignUpScreenProps {
 }
 
 export function SignUpScreen({ onSignUp, onNavigateToLogin }: SignUpScreenProps) {
-  const colorScheme = useColorScheme();
   const [formData, setFormData] = useState({ fullName: '', username: '', email: '', password: '', confirmPassword: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
