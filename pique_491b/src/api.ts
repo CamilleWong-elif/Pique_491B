@@ -13,26 +13,55 @@ function normalizeApiBase(rawBase: string): string {
 
 const API_BASE = normalizeApiBase(process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_BASE);
 
-async function getAuthHeaders(): Promise<Record<string, string>> {
+async function getAuthHeaders(forceRefresh = false): Promise<Record<string, string>> {
   const user = auth.currentUser;
   if (!user) return {};
-  const token = await user.getIdToken();
-  return {
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  };
+  try {
+    const token = await user.getIdToken(forceRefresh);
+    return {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    };
+  } catch (error: any) {
+    const cachedToken = (user as any)?.stsTokenManager?.accessToken;
+    if (!forceRefresh && error?.code === 'auth/network-request-failed' && cachedToken) {
+      console.warn('api.ts: Falling back to cached Firebase ID token due to network error.');
+      return {
+        Authorization: `Bearer ${cachedToken}`,
+        'Content-Type': 'application/json',
+      };
+    }
+    throw error;
+  }
 }
 
 async function apiFetch<T = any>(path: string, options?: RequestInit): Promise<T> {
-  const headers = await getAuthHeaders();
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: { ...headers, ...(options?.headers as Record<string, string>) },
-  });
+  const makeRequest = async (forceRefresh = false) => {
+    const headers = await getAuthHeaders(forceRefresh);
+    return fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: { ...headers, ...(options?.headers as Record<string, string>) },
+    });
+  };
+
+  let res = await makeRequest();
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && auth.currentUser) {
+      try {
+        await auth.currentUser.getIdToken(true);
+        res = await makeRequest(true);
+      } catch (refreshError) {
+        console.warn('api.ts: Token refresh failed after expired-token response.', refreshError);
+      }
+    }
+  }
+
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `API error ${res.status}`);
   }
+
   return res.json();
 }
 
