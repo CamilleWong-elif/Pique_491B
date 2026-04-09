@@ -1,5 +1,5 @@
-import { ArrowLeft, ImagePlus, Paperclip, Send, X, FileText, Download } from 'lucide-react-native';
-import { useState, useEffect } from 'react';
+import { ArrowLeft, ImagePlus, Paperclip, Send, X, FileText, Download, Reply } from 'lucide-react-native';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -26,11 +26,13 @@ import {
   onSnapshot,
   query,
   orderBy,
+  where,
   serverTimestamp,
-  writeBatch
+  writeBatch,
+  getDoc,
 } from 'firebase/firestore';
-import { db, storage } from '../../firebase';
-const MY_USER_ID = 'user_123';
+import { db, storage, auth } from '../../firebase';
+import { apiStartConversation } from '@/api';
 
 type Conversation = {
   id: string;
@@ -38,7 +40,14 @@ type Conversation = {
   avatar?: string;
   lastMessage: string;
   timestamp: string;
+  sortTime: number;
   unread?: number;
+};
+
+type ReplyRef = {
+  id: string;
+  text: string;
+  senderName: string;
 };
 
 type Message = {
@@ -49,78 +58,164 @@ type Message = {
   imageUrl?: string;
   fileUrl?: string;
   fileName?: string;
+  replyTo?: ReplyRef;
 };
 
 interface MessagingScreenProps {
   onBack: () => void;
+  openWithUserId?: string;
 }
 
-export function MessagingScreen({ onBack }: MessagingScreenProps) {
+export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps) {
+  const currentUid = auth.currentUser?.uid ?? '';
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvo, setActiveConvo] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [uploading, setUploading] = useState(false);
-  const [pendingImage, setPendingImage] = useState<string | null>(null);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [loading, setLoading] = useState(false);
+  const inputRef = useRef<TextInput>(null);
+  const flatListRef = useRef<FlatList>(null);
   const insets = useSafeAreaInsets();
 
-  // 1. Listen for Conversations (Inbox View)
+  // Listen for conversations the current user participates in
   useEffect(() => {
-    const chatsRef = collection(db, 'chats');
-    const q = query(chatsRef, orderBy('updatedAt', 'desc'));
+    if (!currentUid) return;
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedConvos = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          name: data.name || 'Unknown',
-          avatar: data.avatar,
+    const convosRef = collection(db, 'conversations');
+    const q = query(
+      convosRef,
+      where('participants', 'array-contains', currentUid),
+    );
+
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const fetched: Conversation[] = [];
+      for (const docSnap of snapshot.docs) {
+        const data = docSnap.data();
+        const otherUid = (data.participants || []).find((p: string) => p !== currentUid);
+
+        let name = 'Unknown';
+        let avatar: string | undefined;
+
+        if (otherUid) {
+          try {
+            const userDoc = await getDoc(doc(db, 'users', otherUid));
+            if (userDoc.exists()) {
+              const ud = userDoc.data();
+              name = ud.displayName || ud.username || 'Unknown';
+              avatar = ud.avatarDataUrl || ud.avatar || ud.photoURL || undefined;
+            }
+          } catch { /* fallback to Unknown */ }
+        }
+
+        const ts = data.lastMessageAt;
+        let timeStr = '';
+        let sortTime = 0;
+        if (ts) {
+          const d = typeof ts.toDate === 'function' ? ts.toDate() : new Date(ts);
+          timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          sortTime = d.getTime();
+        }
+
+        fetched.push({
+          id: docSnap.id,
+          name,
+          avatar,
           lastMessage: data.lastMessage || '',
-          timestamp: data.updatedAt
-            ? new Date(data.updatedAt.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            : '',
-        };
-      });
-      setConversations(fetchedConvos);
+          timestamp: timeStr,
+          sortTime,
+        });
+      }
+      // Sort by most recent (no composite index needed)
+      fetched.sort((a, b) => b.sortTime - a.sortTime);
+      setConversations(fetched);
     }, (error) => {
       console.error("Error fetching conversations:", error);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [currentUid]);
 
-  // 2. Listen for Messages inside an Active Conversation (Chat View)
+  // Auto-open conversation with a specific user (e.g. from friend profile)
+  useEffect(() => {
+    if (!openWithUserId || !currentUid) return;
+
+    const openConversation = async () => {
+      setLoading(true);
+      try {
+        const result = await apiStartConversation(openWithUserId);
+        const convoId = result.id;
+
+        // Look up the friend's name
+        let friendName = 'Unknown';
+        let friendAvatar: string | undefined;
+        try {
+          const userDoc = await getDoc(doc(db, 'users', openWithUserId));
+          if (userDoc.exists()) {
+            const ud = userDoc.data();
+            friendName = ud.displayName || ud.username || 'Unknown';
+            friendAvatar = ud.avatarDataUrl || ud.avatar || ud.photoURL || undefined;
+          }
+        } catch { /* fallback */ }
+
+        setActiveConvo({
+          id: convoId,
+          name: friendName,
+          avatar: friendAvatar,
+          lastMessage: '',
+          timestamp: '',
+          sortTime: Date.now(),
+        });
+      } catch (err) {
+        console.error('Failed to open conversation:', err);
+        Alert.alert('Error', 'Could not start conversation. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    openConversation();
+  }, [openWithUserId, currentUid]);
+
+  // Listen for messages in active conversation
   useEffect(() => {
     if (!activeConvo) return;
 
-    const messagesRef = collection(db, 'chats', activeConvo.id, 'messages');
-    const q = query(messagesRef, orderBy('timestamp', 'asc'));
+    const messagesRef = collection(db, 'conversations', activeConvo.id, 'messages');
+    const q = query(messagesRef, orderBy('createdAt', 'asc'));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedMessages = snapshot.docs.map(doc => {
-        const data = doc.data();
+      const fetchedMessages = snapshot.docs.map(docSnap => {
+        const data = docSnap.data();
+        const ts = data.createdAt || data.timestamp;
+        let timeStr = 'Now';
+        if (ts) {
+          const d = typeof ts.toDate === 'function' ? ts.toDate() : new Date(ts);
+          timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
         return {
-          id: doc.id,
+          id: docSnap.id,
           text: data.text || '',
-          fromMe: data.senderId === MY_USER_ID,
-          timestamp: data.timestamp
-            ? new Date(data.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            : 'Now',
+          fromMe: data.senderId === currentUid,
+          timestamp: timeStr,
           imageUrl: data.imageUrl || undefined,
           fileUrl: data.fileUrl || undefined,
           fileName: data.fileName || undefined,
+          replyTo: data.replyTo || undefined,
         };
       });
       setMessages(fetchedMessages);
+      // Scroll to bottom on new messages
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     }, (error) => {
       console.error("Error fetching messages:", error);
     });
 
     return () => unsubscribe();
-  }, [activeConvo]);
+  }, [activeConvo, currentUid]);
 
-  // Upload a file/image to Firebase Storage and return the download URL
+  // Upload a file/image to Firebase Storage
   const uploadToStorage = async (uri: string, fileName: string): Promise<string> => {
     const response = await fetch(uri);
     const blob = await response.blob();
@@ -140,24 +235,26 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
     });
   };
 
-  // 3. Send a Message to Firebase
+  // Send a message
   const sendMessage = async (opts?: { imageUrl?: string; fileUrl?: string; fileName?: string }) => {
     const textToSend = inputText.trim();
     const hasContent = textToSend || opts?.imageUrl || opts?.fileUrl;
     if (!hasContent || !activeConvo) return;
 
+    const currentReply = replyTo;
     setInputText('');
-    setPendingImage(null);
+    setReplyTo(null);
 
     try {
       const batch = writeBatch(db);
 
-      const messagesCollectionRef = collection(db, 'chats', activeConvo.id, 'messages');
+      const messagesCollectionRef = collection(db, 'conversations', activeConvo.id, 'messages');
       const newMessageRef = doc(messagesCollectionRef);
 
       const messageData: Record<string, any> = {
-        senderId: MY_USER_ID,
-        timestamp: serverTimestamp(),
+        senderId: currentUid,
+        createdAt: serverTimestamp(),
+        read: false,
       };
       if (textToSend) messageData.text = textToSend;
       if (opts?.imageUrl) messageData.imageUrl = opts.imageUrl;
@@ -165,14 +262,21 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
         messageData.fileUrl = opts.fileUrl;
         messageData.fileName = opts.fileName || 'file';
       }
+      if (currentReply) {
+        messageData.replyTo = {
+          id: currentReply.id,
+          text: currentReply.text || (currentReply.imageUrl ? 'Photo' : currentReply.fileName || 'File'),
+          senderName: currentReply.fromMe ? 'You' : activeConvo.name,
+        };
+      }
 
       batch.set(newMessageRef, messageData);
 
-      const chatRef = doc(db, 'chats', activeConvo.id);
-      const lastMsg = textToSend || (opts?.imageUrl ? '📷 Photo' : `📎 ${opts?.fileName || 'File'}`);
+      const chatRef = doc(db, 'conversations', activeConvo.id);
+      const lastMsg = textToSend || (opts?.imageUrl ? 'Photo' : `${opts?.fileName || 'File'}`);
       batch.update(chatRef, {
         lastMessage: lastMsg,
-        updatedAt: serverTimestamp(),
+        lastMessageAt: serverTimestamp(),
       });
 
       await batch.commit();
@@ -182,7 +286,7 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
     }
   };
 
-  // Pick an image from gallery
+  // Pick an image
   const handlePickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -211,7 +315,7 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
     }
   };
 
-  // Pick a file/document
+  // Pick a file
   const handlePickFile = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({ type: '*/*' });
@@ -230,10 +334,31 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
     }
   };
 
+  // Set reply target
+  const handleReply = useCallback((message: Message) => {
+    setReplyTo(message);
+    inputRef.current?.focus();
+  }, []);
+
+  // Render reply preview inside a message bubble
+  const renderReplyPreview = (reply: ReplyRef, fromMe: boolean) => (
+    <View style={[styles.replyInBubble, fromMe ? styles.replyInBubbleMe : styles.replyInBubbleThem]}>
+      <Text style={[styles.replyInBubbleName, fromMe && styles.replyInBubbleNameMe]} numberOfLines={1}>
+        {reply.senderName}
+      </Text>
+      <Text style={[styles.replyInBubbleText, fromMe && styles.replyInBubbleTextMe]} numberOfLines={2}>
+        {reply.text}
+      </Text>
+    </View>
+  );
+
   // Render a single message bubble
   const renderMessage = ({ item }: { item: Message }) => (
     <View style={[styles.messageBubbleWrap, item.fromMe && styles.messageBubbleWrapMe]}>
       <View style={[styles.bubble, item.fromMe ? styles.bubbleMe : styles.bubbleThem]}>
+        {/* Reply reference */}
+        {item.replyTo && renderReplyPreview(item.replyTo, item.fromMe)}
+
         {/* Inline image */}
         {item.imageUrl ? (
           <TouchableOpacity onPress={() => Linking.openURL(item.imageUrl!)} activeOpacity={0.8}>
@@ -261,16 +386,35 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
           <Text style={[styles.bubbleText, item.fromMe && styles.bubbleTextMe]}>{item.text}</Text>
         ) : null}
       </View>
-      <Text style={styles.messageTime}>{item.timestamp}</Text>
+
+      {/* Reply button + timestamp row */}
+      <View style={[styles.messageFooter, item.fromMe && styles.messageFooterMe]}>
+        <TouchableOpacity onPress={() => handleReply(item)} style={styles.replyBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Reply size={14} color="#9ca3af" />
+        </TouchableOpacity>
+        <Text style={styles.messageTime}>{item.timestamp}</Text>
+      </View>
     </View>
   );
+
+  // Loading state (e.g. opening conversation from friend profile)
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.root}>
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color="#3b82f6" />
+          <Text style={styles.loadingText}>Opening conversation...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   // Chat view
   if (activeConvo) {
     return (
       <SafeAreaView style={styles.root}>
         <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-          <TouchableOpacity onPress={() => setActiveConvo(null)}>
+          <TouchableOpacity onPress={() => { setActiveConvo(null); setReplyTo(null); }}>
             <ArrowLeft size={24} color="#111" />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
@@ -286,10 +430,12 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
         </View>
 
         <FlatList
+          ref={flatListRef}
           data={messages}
           keyExtractor={m => m.id}
           contentContainerStyle={styles.messagesList}
           renderItem={renderMessage}
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
         />
 
         {/* Upload indicator */}
@@ -297,6 +443,26 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
           <View style={styles.uploadingBar}>
             <ActivityIndicator size="small" color="#3b82f6" />
             <Text style={styles.uploadingText}>Uploading...</Text>
+          </View>
+        )}
+
+        {/* Reply preview bar */}
+        {replyTo && (
+          <View style={styles.replyBar}>
+            <View style={styles.replyBarContent}>
+              <Reply size={16} color="#3b82f6" />
+              <View style={styles.replyBarTextWrap}>
+                <Text style={styles.replyBarName}>
+                  {replyTo.fromMe ? 'You' : activeConvo.name}
+                </Text>
+                <Text style={styles.replyBarText} numberOfLines={1}>
+                  {replyTo.text || (replyTo.imageUrl ? 'Photo' : replyTo.fileName || 'File')}
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity onPress={() => setReplyTo(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <X size={18} color="#6b7280" />
+            </TouchableOpacity>
           </View>
         )}
 
@@ -309,6 +475,7 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
               <Paperclip size={20} color={uploading ? '#d1d5db' : '#6b7280'} />
             </TouchableOpacity>
             <TextInput
+              ref={inputRef}
               style={styles.input}
               value={inputText}
               onChangeText={setInputText}
@@ -340,6 +507,13 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
         <Text style={styles.headerTitle}>Messages</Text>
         <View style={{ width: 24 }} />
       </View>
+
+      {conversations.length === 0 && (
+        <View style={styles.emptyWrap}>
+          <Text style={styles.emptyText}>No conversations yet</Text>
+          <Text style={styles.emptySubtext}>Start a conversation from a friend's profile</Text>
+        </View>
+      )}
 
       <FlatList
         data={conversations}
@@ -400,19 +574,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#d1d5db', alignItems: 'center', justifyContent: 'center',
   },
   avatarFallbackText: { fontSize: 16, fontWeight: '800', color: '#374151' },
-  badge: {
-    position: 'absolute', top: -2, right: -2,
-    backgroundColor: '#ef4444', borderRadius: 10,
-    minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  badgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
   convoInfo: { flex: 1 },
   convoName: { fontSize: 15, fontWeight: '700', color: '#111827', marginBottom: 3 },
   convoLast: { fontSize: 13, color: '#6b7280' },
   convoTime: { fontSize: 12, color: '#9ca3af' },
 
-  messagesList: { padding: 16, gap: 8 },
+  emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 60 },
+  emptyText: { fontSize: 16, fontWeight: '600', color: '#374151', marginBottom: 4 },
+  emptySubtext: { fontSize: 13, color: '#9ca3af' },
+
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
+  loadingText: { fontSize: 14, color: '#6b7280' },
+
+  messagesList: { padding: 16, gap: 4 },
   messageBubbleWrap: { alignItems: 'flex-start', marginBottom: 8 },
   messageBubbleWrapMe: { alignItems: 'flex-end' },
   bubble: {
@@ -423,7 +597,46 @@ const styles = StyleSheet.create({
   bubbleThem: { backgroundColor: '#f3f4f6', borderBottomLeftRadius: 4 },
   bubbleText: { fontSize: 14, color: '#111827' },
   bubbleTextMe: { color: '#fff' },
-  messageTime: { fontSize: 10, color: '#9ca3af', marginTop: 3 },
+
+  messageFooter: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 },
+  messageFooterMe: { flexDirection: 'row-reverse' },
+  messageTime: { fontSize: 10, color: '#9ca3af' },
+  replyBtn: { padding: 2 },
+
+  // Reply reference inside message bubble
+  replyInBubble: {
+    backgroundColor: 'rgba(0,0,0,0.06)',
+    borderLeftWidth: 3,
+    borderLeftColor: '#3b82f6',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    marginBottom: 6,
+  },
+  replyInBubbleMe: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderLeftColor: '#93c5fd',
+  },
+  replyInBubbleThem: {},
+  replyInBubbleName: { fontSize: 11, fontWeight: '700', color: '#3b82f6', marginBottom: 1 },
+  replyInBubbleNameMe: { color: '#93c5fd' },
+  replyInBubbleText: { fontSize: 12, color: '#6b7280' },
+  replyInBubbleTextMe: { color: 'rgba(255,255,255,0.7)' },
+
+  // Reply bar above input
+  replyBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#f0f9ff',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+  },
+  replyBarContent: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  replyBarTextWrap: { flex: 1 },
+  replyBarName: { fontSize: 12, fontWeight: '700', color: '#3b82f6' },
+  replyBarText: { fontSize: 12, color: '#6b7280' },
 
   chatImage: {
     width: 200,
