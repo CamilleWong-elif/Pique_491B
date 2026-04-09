@@ -15,6 +15,7 @@ import { LoginScreen } from '../screens/LoginScreen';
 import { MessagingScreen } from '../screens/MessagingScreen';
 import { ProfilePage } from '../screens/ProfilePage';
 import { PrivacyPolicyScreen } from '../screens/PrivacyPolicyPage';
+import { ChangePasswordScreen } from '../screens/ChangePasswordPage';
 import { SettingsScreen } from '../screens/SettingsPage';
 import { SignUpScreen } from '../screens/SignUpScreen';
 import { SplashScreen } from '../screens/SplashScreen';
@@ -216,6 +217,9 @@ export default function App() {
         )}
         {showApp && currentPage === 'settings' && (
           <SettingsScreen onNavigate={handleNavigate} />
+        )}
+        {showApp && currentPage === 'changePassword' && (
+          <ChangePasswordScreen onNavigate={handleNavigate} />
         )}
         {showApp && currentPage === 'contact' && (
           <ContactUsPage onNavigate={handleNavigate} />
