@@ -20,6 +20,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { getAuth } from 'firebase/auth'; // Added getAuth
+import { resolveAvatarUrl } from '@/utils/avatar';
 
 import {
   collection,
@@ -110,7 +111,7 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
         
         // If it's a 1-on-1 chat, use their avatar/avatarDataUrl. If it's a group chat, default to null (so it shows initials)
         const chatAvatar = otherUsersProfiles.length === 1 
-          ? (otherUsersProfiles[0].avatar || otherUsersProfiles[0].avatarDataUrl || null) 
+          ? (resolveAvatarUrl(otherUsersProfiles[0] as Record<string, unknown>) || null) 
           : null;
 
         return {

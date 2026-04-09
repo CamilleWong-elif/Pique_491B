@@ -131,6 +131,13 @@ export const apiPostReview = (data: { eventId: string; rating: number; comment: 
 export const apiGetFriendReviews = () =>
   apiFetch('/api/reviews/friends');
 
+/** Hide a feed activity for the current user only (e.g. bookmark card); does not remove the bookmark. */
+export const apiDismissFeedActivity = (activityId: string) =>
+  apiFetch('/api/reviews/feed/dismiss', {
+    method: 'POST',
+    body: JSON.stringify({ activityId }),
+  });
+
 export const apiDeleteReview = (reviewId: string) =>
   apiFetch(`/api/reviews/${reviewId}`, { method: 'DELETE' });
 
