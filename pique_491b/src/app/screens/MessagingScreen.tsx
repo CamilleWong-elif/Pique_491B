@@ -19,18 +19,21 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { getAuth } from 'firebase/auth'; // Added getAuth
+import { resolveAvatarUrl } from '@/utils/avatar';
 
 import {
   collection,
   doc,
   onSnapshot,
   query,
+  getDoc,
+  where, // Added where
   orderBy,
   serverTimestamp,
   writeBatch
 } from 'firebase/firestore';
 import { db, storage } from '../../firebase';
-const MY_USER_ID = 'user_123';
 
 type Conversation = {
   id: string;
@@ -56,6 +59,10 @@ interface MessagingScreenProps {
 }
 
 export function MessagingScreen({ onBack }: MessagingScreenProps) {
+  // 1. Get the dynamic user ID from Firebase Auth
+  const auth = getAuth();
+  const MY_USER_ID = auth.currentUser?.uid;
+
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvo, setActiveConvo] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -64,33 +71,69 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
 
-  // 1. Listen for Conversations (Inbox View)
+// 2. Listen for Conversations (Inbox View)
   useEffect(() => {
-    const chatsRef = collection(db, 'chats');
-    const q = query(chatsRef, orderBy('updatedAt', 'desc'));
+    if (!MY_USER_ID) return; 
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedConvos = snapshot.docs.map(doc => {
-        const data = doc.data();
+    const chatsRef = collection(db, 'chats');
+    const q = query(
+      chatsRef, 
+      where('participants', 'array-contains', MY_USER_ID),
+      orderBy('updatedAt', 'desc')
+    );
+
+    // Because we are fetching extra user data, we make the callback async
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      
+      // Promise.all lets us fetch all the missing user profiles at the same time
+      const fetchedConvos = await Promise.all(snapshot.docs.map(async (chatDoc) => {
+        const data = chatDoc.data();
+        const participantIds: string[] = data.participants || [];
+        
+        // Find everyone in the chat who ISN'T you
+        const otherUserIds = participantIds.filter((id: string) => id !== MY_USER_ID);
+
+        // Fetch the profile documents for everyone else in the chat
+        const otherUsersProfiles = await Promise.all(
+          otherUserIds.map(async (uid) => {
+             // If you did hardcode the users map, use it to save database reads
+             if (data.users && data.users[uid]) {
+                return data.users[uid];
+             }
+             // Otherwise, go grab their actual user document
+             const userSnap = await getDoc(doc(db, 'users', uid));
+             return userSnap.exists() ? userSnap.data() : { displayName: 'Unknown User' };
+          })
+        );
+
+        // Map their names and join them with commas (e.g., "Joe" OR "Joe, Sarah")
+        const chatName = otherUsersProfiles.map(u => u.displayName).join(', ') || data.name || 'Unknown';
+        
+        // If it's a 1-on-1 chat, use their avatar/avatarDataUrl. If it's a group chat, default to null (so it shows initials)
+        const chatAvatar = otherUsersProfiles.length === 1 
+          ? (resolveAvatarUrl(otherUsersProfiles[0] as Record<string, unknown>) || null) 
+          : null;
+
         return {
-          id: doc.id,
-          name: data.name || 'Unknown',
-          avatar: data.avatar,
+          id: chatDoc.id,
+          name: chatName,
+          avatar: chatAvatar,
           lastMessage: data.lastMessage || '',
           timestamp: data.updatedAt
             ? new Date(data.updatedAt.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             : '',
         };
-      });
+      }));
+
       setConversations(fetchedConvos);
     }, (error) => {
       console.error("Error fetching conversations:", error);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [MY_USER_ID]);
 
-  // 2. Listen for Messages inside an Active Conversation (Chat View)
+  // 3. Listen for Messages inside an Active Conversation (Chat View)
   useEffect(() => {
     if (!activeConvo) return;
 
@@ -118,7 +161,7 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
     });
 
     return () => unsubscribe();
-  }, [activeConvo]);
+  }, [activeConvo, MY_USER_ID]);
 
   // Upload a file/image to Firebase Storage and return the download URL
   const uploadToStorage = async (uri: string, fileName: string): Promise<string> => {
@@ -140,11 +183,11 @@ export function MessagingScreen({ onBack }: MessagingScreenProps) {
     });
   };
 
-  // 3. Send a Message to Firebase
+  // 4. Send a Message to Firebase
   const sendMessage = async (opts?: { imageUrl?: string; fileUrl?: string; fileName?: string }) => {
     const textToSend = inputText.trim();
     const hasContent = textToSend || opts?.imageUrl || opts?.fileUrl;
-    if (!hasContent || !activeConvo) return;
+    if (!hasContent || !activeConvo || !MY_USER_ID) return;
 
     setInputText('');
     setPendingImage(null);

@@ -54,6 +54,7 @@ function mapApiComment(raw: Record<string, unknown>): Comment {
 export type SocialActivity = {
   id: string;
   action: "going" | "interested" | "rated";
+  sourceType?: "review" | "bookmark";
   userName: string;
   userAvatar?: string;
   authorId?: string;
@@ -288,17 +289,23 @@ export function SocialActivityCard({
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
+  const isCurrentUserActivity = !!activity.authorId && activity.authorId === user?.uid;
+  const actorLabel = isCurrentUserActivity ? "You" : activity.userName;
+  const actorStyle = isCurrentUserActivity ? styles.actionText : styles.friendName;
+
   const renderActionText = () => {
     if (activity.action === "going") {
       return (
         <Text style={styles.actionText}>
           <Text
-            style={styles.friendName}
-            onPress={() => onFriendClick?.(activity.authorId || activity.userName)}
+            style={actorStyle}
+            onPress={() => {
+              if (!isCurrentUserActivity) onFriendClick?.(activity.authorId || activity.userName);
+            }}
           >
-            {activity.userName}
+            {actorLabel}
           </Text>
-          <Text> is going to </Text>
+          <Text>{isCurrentUserActivity ? " are going to " : " is going to "}</Text>
           <Text style={styles.eventName} onPress={onClick}>
             {activity.eventName}
           </Text>
@@ -309,12 +316,14 @@ export function SocialActivityCard({
       return (
         <Text style={styles.actionText}>
           <Text
-            style={styles.friendName}
-            onPress={() => onFriendClick?.(activity.authorId || activity.userName)}
+            style={actorStyle}
+            onPress={() => {
+              if (!isCurrentUserActivity) onFriendClick?.(activity.authorId || activity.userName);
+            }}
           >
-            {activity.userName}
+            {actorLabel}
           </Text>
-          <Text> is interested in </Text>
+          <Text>{isCurrentUserActivity ? " bookmarked " : " is interested in "}</Text>
           <Text style={styles.eventName} onPress={onClick}>
             {activity.eventName}
           </Text>
@@ -326,12 +335,14 @@ export function SocialActivityCard({
       <View>
         <Text style={[styles.actionText, { marginBottom: 6 }]}>
           <Text
-            style={styles.friendName}
-            onPress={() => onFriendClick?.(activity.authorId || activity.userName)}
+            style={actorStyle}
+            onPress={() => {
+              if (!isCurrentUserActivity) onFriendClick?.(activity.authorId || activity.userName);
+            }}
           >
-            {activity.userName}
+            {actorLabel}
           </Text>
-          <Text>{isCompact ? " rated " : " ranked "}</Text>
+          <Text> rated </Text>
           <Text style={styles.eventName} onPress={onClick}>
             {activity.eventName}
           </Text>
@@ -679,18 +690,20 @@ export function SocialActivityCard({
             </View>
 
             <View style={styles.rightActions}>
-              <TouchableOpacity onPress={toggleSave} style={styles.actionBtn}>
-                <Bookmark size={20} color={isSaved ? "#3b82f6" : "#374151"} fill={isSaved ? "#3b82f6" : "none"} />
-              </TouchableOpacity>
+              {!isCurrentUserActivity ? (
+                <TouchableOpacity onPress={toggleSave} style={styles.actionBtn}>
+                  <Bookmark size={20} color={isSaved ? "#3b82f6" : "#374151"} fill={isSaved ? "#3b82f6" : "none"} />
+                </TouchableOpacity>
+              ) : null}
               {isOwner && (
                 <TouchableOpacity
                   onPress={() =>
                     Alert.alert(
-                      "Delete Review",
-                      "Are you sure you want to delete this review?",
+                      "Delete Post",
+                      "Are you sure you want to delete this post?",
                       [
-                        { text: "Cancel", style: "cancel" },
-                        { text: "Delete", style: "destructive", onPress: () => onDelete?.(activity.id) },
+                        { text: "No", style: "cancel" },
+                        { text: "Yes", style: "destructive", onPress: () => onDelete?.(activity.id) },
                       ]
                     )
                   }
