@@ -3,6 +3,7 @@ import { SocialActivity, SocialActivityCard } from '@/components/SocialActivityC
 import { NavigationBar } from '@/components/NavigationBar';
 import { useAuth } from '@/context/AuthContext';
 import { auth } from '@/firebase';
+import { resolveAvatarUrl } from '@/utils/avatar';
 import { Globe, Info, Search, Trophy, Users, X } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -61,11 +62,14 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
     setReviewsLoading(true);
     apiGetFriendReviews()
       .then((data: any[]) => {
-        const activities: SocialActivity[] = data.map((r) => ({
+        const activities: SocialActivity[] = (data || [])
+          .filter((r: any) => r.action !== 'interested')
+          .map((r: any) => ({
           id: r.id,
           action: 'rated' as const,
+          sourceType: 'review' as const,
           userName: r.friendName || r.authorUsername || r.username || 'Anonymous',
-          userAvatar: r.friendAvatar || undefined,
+          userAvatar: resolveAvatarUrl(r),
           authorId: r.author || r.authorId || r.userId || r.uid || r.authorUid || '',
           eventId: r.event || r.eventId || '',
           eventName: r.eventName || '',
