@@ -12,6 +12,7 @@ import { EventCard } from '@/components/EventCard';
 import { NavigationBar } from '@/components/NavigationBar';
 import { useAuth } from '@/context/AuthContext';
 import type { Event } from '@/types/Event';
+import { resolveAvatarUrl } from '@/utils/avatar';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { Calendar, Camera, FileText, Heart, Pencil, Plus, X } from 'lucide-react-native';
@@ -100,7 +101,7 @@ export function ProfilePage({
         id: d.id,
         name: d.name ?? '',
         username: `@${d.username ?? ''}`,
-        avatar: d.avatar ?? '',
+        avatar: resolveAvatarUrl(d) ?? '',
       }))))
       .catch(() => setFollowers([]));
   }, [followerUids.join(','), user?.uid]);
@@ -113,7 +114,7 @@ export function ProfilePage({
         id: d.id,
         name: d.name ?? '',
         username: `@${d.username ?? ''}`,
-        avatar: d.avatar ?? '',
+        avatar: resolveAvatarUrl(d) ?? '',
       }))))
       .catch(() => setFollowing([]));
   }, [followingUids.join(','), user?.uid]);
