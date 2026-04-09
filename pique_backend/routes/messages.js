@@ -11,7 +11,7 @@ const router = express.Router();
 router.get("/conversations", authenticate, async (req, res) => {
   try {
     const snapshot = await db
-      .collection("conversations")
+      .collection("chats")
       .where("participants", "array-contains", req.user.uid)
       .orderBy("lastMessageAt", "desc")
       .get();
@@ -36,7 +36,7 @@ router.get("/conversations", authenticate, async (req, res) => {
 
       // Count unread messages
       const unreadSnap = await db
-        .collection("conversations")
+        .collection("chats")
         .doc(doc.id)
         .collection("messages")
         .where("senderId", "!=", req.user.uid)
@@ -67,7 +67,7 @@ router.get("/conversations", authenticate, async (req, res) => {
 router.get("/:conversationId", authenticate, async (req, res) => {
   try {
     const convoDoc = await db
-      .collection("conversations")
+      .collection("chats")
       .doc(req.params.conversationId)
       .get();
 
@@ -82,7 +82,7 @@ router.get("/:conversationId", authenticate, async (req, res) => {
     }
 
     const snapshot = await db
-      .collection("conversations")
+      .collection("chats")
       .doc(req.params.conversationId)
       .collection("messages")
       .orderBy("createdAt", "asc")
@@ -125,7 +125,7 @@ router.post("/:conversationId", authenticate, async (req, res) => {
     }
 
     const convoRef = db
-      .collection("conversations")
+      .collection("chats")
       .doc(req.params.conversationId);
 
     const convoDoc = await convoRef.get();
@@ -183,7 +183,7 @@ router.post("/conversations/new", authenticate, async (req, res) => {
 
     // Check if conversation already exists between these two users
     const existing = await db
-      .collection("conversations")
+      .collection("chats")
       .where("participants", "array-contains", req.user.uid)
       .get();
 
@@ -200,7 +200,7 @@ router.post("/conversations/new", authenticate, async (req, res) => {
       createdAt: new Date().toISOString(),
     };
 
-    const docRef = await db.collection("conversations").add(convoData);
+    const docRef = await db.collection("chats").add(convoData);
 
     return res.status(201).json({ id: docRef.id, ...convoData });
   } catch (err) {
