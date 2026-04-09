@@ -91,13 +91,18 @@ router.get("/:conversationId", authenticate, async (req, res) => {
 
     const messages = snapshot.docs.map((doc) => {
       const data = doc.data();
-      return {
+      const msg = {
         id: doc.id,
-        text: data.text,
+        text: data.text || '',
         fromMe: data.senderId === req.user.uid,
         timestamp: data.createdAt,
         senderId: data.senderId,
       };
+      if (data.imageUrl) msg.imageUrl = data.imageUrl;
+      if (data.fileUrl) msg.fileUrl = data.fileUrl;
+      if (data.fileName) msg.fileName = data.fileName;
+      if (data.replyTo) msg.replyTo = data.replyTo;
+      return msg;
     });
 
     return res.json(messages);
@@ -133,12 +138,18 @@ router.post("/:conversationId", authenticate, async (req, res) => {
       return res.status(403).json({ error: "Not authorized" });
     }
 
+    const { imageUrl, fileUrl, fileName, replyTo } = req.body;
+
     const messageData = {
       text: text.trim(),
       senderId: req.user.uid,
       read: false,
       createdAt: new Date().toISOString(),
     };
+    if (imageUrl) messageData.imageUrl = imageUrl;
+    if (fileUrl) messageData.fileUrl = fileUrl;
+    if (fileName) messageData.fileName = fileName;
+    if (replyTo) messageData.replyTo = replyTo;
 
     const msgRef = await convoRef.collection("messages").add(messageData);
 

@@ -46,7 +46,7 @@ type Props = {
   friendName: string;
   onNavigate: (page: string, eventId?: string, options?: NavOptions) => void;
   onBack: () => void;
-  onOpenMessages?: () => void;
+  onOpenMessages?: (friendId?: string) => void;
   unreadMessageCount?: number;
   mockEvents: Event[];
   getAvatarWithFallback: (name: string) => string;
@@ -377,7 +377,7 @@ export function FriendProfileScreen({
               </TouchableOpacity>
 
               <TouchableOpacity
-                onPress={onOpenMessages}
+                onPress={() => onOpenMessages?.(friendId)}
                 style={[styles.actionBtn, styles.messageBtn]}
                 activeOpacity={0.9}
                 accessibilityRole="button"
