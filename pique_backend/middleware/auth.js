@@ -23,7 +23,10 @@ async function authenticate(req, res, next) {
     next();
   } catch (err) {
     console.error("Auth error:", err.message);
-    return res.status(401).json({ error: "Invalid or expired token" });
+    if (err?.code === "auth/id-token-expired") {
+      return res.status(401).json({ error: "auth/id-token-expired" });
+    }
+    return res.status(401).json({ error: "auth/invalid-id-token" });
   }
 }
 
