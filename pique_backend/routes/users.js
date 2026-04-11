@@ -307,7 +307,7 @@ router.post("/:id/unfollow", authenticate, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.put("/me", authenticate, async (req, res) => {
   try {
-    const allowedFields = ["displayName", "bio", "avatar", "photoURL", "avatarDataUrl", "username", "lat", "lng"];
+    const allowedFields = ["displayName", "bio", "avatar", "photoURL", "avatarDataUrl", "bannerDataUrl", "username", "lat", "lng"];
     const updates = {};
 
     for (const field of allowedFields) {
@@ -329,6 +329,18 @@ router.put("/me", authenticate, async (req, res) => {
       }
       if (updates.avatarDataUrl.length > MAX_AVATAR_DATA_URL_LENGTH) {
         return res.status(400).json({ error: "avatarDataUrl is too large" });
+      }
+    }
+
+    if (updates.bannerDataUrl !== undefined) {
+      if (typeof updates.bannerDataUrl !== "string") {
+        return res.status(400).json({ error: "bannerDataUrl must be a string" });
+      }
+      if (!updates.bannerDataUrl.startsWith("data:image/")) {
+        return res.status(400).json({ error: "bannerDataUrl must be an image data URL" });
+      }
+      if (updates.bannerDataUrl.length > MAX_AVATAR_DATA_URL_LENGTH * 3) {
+        return res.status(400).json({ error: "bannerDataUrl is too large" });
       }
     }
 
