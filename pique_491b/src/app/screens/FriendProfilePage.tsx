@@ -4,6 +4,7 @@ import React, { useMemo, useState, useEffect } from "react";
 import { apiGetUser, apiFollowUser, apiUnfollowUser, apiGetFollowers, apiGetFollowing } from "@/api";
 import { auth } from "@/firebase";
 import { useAuth } from "@/context/AuthContext";
+import { resolveAvatarUrl } from "@/utils/avatar";
 import {
   View,
   Text,
@@ -45,7 +46,7 @@ type Props = {
   friendName: string;
   onNavigate: (page: string, eventId?: string, options?: NavOptions) => void;
   onBack: () => void;
-  onOpenMessages?: () => void;
+  onOpenMessages?: (friendId?: string) => void;
   unreadMessageCount?: number;
   mockEvents: Event[];
   getAvatarWithFallback: (name: string) => string;
@@ -224,7 +225,7 @@ export function FriendProfileScreen({
         name: d.name ?? "",
         username: `@${d.username ?? ""}`,
         bio: "",
-        avatar: d.avatar ?? "",
+        avatar: resolveAvatarUrl(d) ?? "",
       }))))
       .catch(() => setMockFollowers([]));
   }, [friendData.followerUids.join(","), friendId]);
@@ -237,7 +238,7 @@ export function FriendProfileScreen({
         name: d.name ?? "",
         username: `@${d.username ?? ""}`,
         bio: "",
-        avatar: d.avatar ?? "",
+        avatar: resolveAvatarUrl(d) ?? "",
       }))))
       .catch(() => setMockFollowing([]));
   }, [friendData.followingUids.join(","), friendId]);
@@ -376,7 +377,7 @@ export function FriendProfileScreen({
               </TouchableOpacity>
 
               <TouchableOpacity
-                onPress={onOpenMessages}
+                onPress={() => onOpenMessages?.(friendId)}
                 style={[styles.actionBtn, styles.messageBtn]}
                 activeOpacity={0.9}
                 accessibilityRole="button"

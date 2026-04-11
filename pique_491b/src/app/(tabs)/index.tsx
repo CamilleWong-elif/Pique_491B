@@ -15,6 +15,7 @@ import { LoginScreen } from '../screens/LoginScreen';
 import { MessagingScreen } from '../screens/MessagingScreen';
 import { ProfilePage } from '../screens/ProfilePage';
 import { PrivacyPolicyScreen } from '../screens/PrivacyPolicyPage';
+import { ChangePasswordScreen } from '../screens/ChangePasswordPage';
 import { SettingsScreen } from '../screens/SettingsPage';
 import { SignUpScreen } from '../screens/SignUpScreen';
 import { SplashScreen } from '../screens/SplashScreen';
@@ -38,6 +39,7 @@ export default function App() {
   const [postedEventName, setPostedEventName] = useState('');
   const [selectedFriendName, setSelectedFriendName] = useState('');
   const [selectedEventId, setSelectedEventId] = useState<string>('');
+  const [messageRecipientId, setMessageRecipientId] = useState<string | undefined>(undefined);
   const prevUidRef = useRef<string | null | undefined>(undefined);
 
   const isAuthenticated = !!user;
@@ -212,10 +214,16 @@ export default function App() {
           <CreateEventPage onNavigate={handleNavigate} />
         )}
         {showApp && currentPage === 'messages' && (
-          <MessagingScreen onBack={() => handleNavigate('home')} />
+          <MessagingScreen
+            onBack={() => { setMessageRecipientId(undefined); handleNavigate('home'); }}
+            openWithUserId={messageRecipientId}
+          />
         )}
         {showApp && currentPage === 'settings' && (
           <SettingsScreen onNavigate={handleNavigate} />
+        )}
+        {showApp && currentPage === 'changePassword' && (
+          <ChangePasswordScreen onNavigate={handleNavigate} />
         )}
         {showApp && currentPage === 'contact' && (
           <ContactUsPage onNavigate={handleNavigate} />
@@ -248,7 +256,7 @@ export default function App() {
             friendName={selectedFriendName}
             onNavigate={handleNavigate}
             onBack={() => handleNavigate('leaderboard')}
-            onOpenMessages={() => handleNavigate('messages')}
+            onOpenMessages={(friendId?: string) => { setMessageRecipientId(friendId); handleNavigate('messages'); }}
             unreadMessageCount={0}
             mockEvents={[]}
             getAvatarWithFallback={getAvatarWithFallback}
