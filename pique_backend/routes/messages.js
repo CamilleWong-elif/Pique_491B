@@ -11,7 +11,7 @@ const router = express.Router();
 router.get("/conversations", authenticate, async (req, res) => {
   try {
     const snapshot = await db
-      .collection("conversations")
+      .collection("chats")
       .where("participants", "array-contains", req.user.uid)
       .orderBy("lastMessageAt", "desc")
       .get();
@@ -36,7 +36,7 @@ router.get("/conversations", authenticate, async (req, res) => {
 
       // Count unread messages
       const unreadSnap = await db
-        .collection("conversations")
+        .collection("chats")
         .doc(doc.id)
         .collection("messages")
         .where("senderId", "!=", req.user.uid)
@@ -67,7 +67,7 @@ router.get("/conversations", authenticate, async (req, res) => {
 router.get("/:conversationId", authenticate, async (req, res) => {
   try {
     const convoDoc = await db
-      .collection("conversations")
+      .collection("chats")
       .doc(req.params.conversationId)
       .get();
 
@@ -82,7 +82,7 @@ router.get("/:conversationId", authenticate, async (req, res) => {
     }
 
     const snapshot = await db
-      .collection("conversations")
+      .collection("chats")
       .doc(req.params.conversationId)
       .collection("messages")
       .orderBy("createdAt", "asc")
@@ -91,13 +91,18 @@ router.get("/:conversationId", authenticate, async (req, res) => {
 
     const messages = snapshot.docs.map((doc) => {
       const data = doc.data();
-      return {
+      const msg = {
         id: doc.id,
-        text: data.text,
+        text: data.text || '',
         fromMe: data.senderId === req.user.uid,
         timestamp: data.createdAt,
         senderId: data.senderId,
       };
+      if (data.imageUrl) msg.imageUrl = data.imageUrl;
+      if (data.fileUrl) msg.fileUrl = data.fileUrl;
+      if (data.fileName) msg.fileName = data.fileName;
+      if (data.replyTo) msg.replyTo = data.replyTo;
+      return msg;
     });
 
     return res.json(messages);
@@ -120,7 +125,7 @@ router.post("/:conversationId", authenticate, async (req, res) => {
     }
 
     const convoRef = db
-      .collection("conversations")
+      .collection("chats")
       .doc(req.params.conversationId);
 
     const convoDoc = await convoRef.get();
@@ -133,12 +138,18 @@ router.post("/:conversationId", authenticate, async (req, res) => {
       return res.status(403).json({ error: "Not authorized" });
     }
 
+    const { imageUrl, fileUrl, fileName, replyTo } = req.body;
+
     const messageData = {
       text: text.trim(),
       senderId: req.user.uid,
       read: false,
       createdAt: new Date().toISOString(),
     };
+    if (imageUrl) messageData.imageUrl = imageUrl;
+    if (fileUrl) messageData.fileUrl = fileUrl;
+    if (fileName) messageData.fileName = fileName;
+    if (replyTo) messageData.replyTo = replyTo;
 
     const msgRef = await convoRef.collection("messages").add(messageData);
 
@@ -172,7 +183,7 @@ router.post("/conversations/new", authenticate, async (req, res) => {
 
     // Check if conversation already exists between these two users
     const existing = await db
-      .collection("conversations")
+      .collection("chats")
       .where("participants", "array-contains", req.user.uid)
       .get();
 
@@ -189,7 +200,7 @@ router.post("/conversations/new", authenticate, async (req, res) => {
       createdAt: new Date().toISOString(),
     };
 
-    const docRef = await db.collection("conversations").add(convoData);
+    const docRef = await db.collection("chats").add(convoData);
 
     return res.status(201).json({ id: docRef.id, ...convoData });
   } catch (err) {

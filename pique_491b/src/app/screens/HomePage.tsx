@@ -4,7 +4,8 @@ import { NotificationsModal } from '@/components/NotificationsModal';
 import { SocialActivity, SocialActivityCard } from '@/components/SocialActivityCard';
 import { SearchOverlay } from '@/components/SearchOverlay';
 import { useAuth } from '@/context/AuthContext';
-import { apiGetEvents, apiGetFriendReviews, apiGetReviewComments, apiPostReviewComment, apiToggleLike, apiToggleReviewLike } from '@/api';
+import { apiDeleteReview, apiDismissFeedActivity, apiGetEvents, apiGetFriendReviews, apiGetReviewComments, apiPostReviewComment, apiToggleLike, apiToggleReviewLike } from '@/api';
+import { resolveAvatarUrl } from '@/utils/avatar';
 import { Bell, Menu, MessageCircle, Plus, Search, SlidersHorizontal, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -135,27 +136,31 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
       try {
         const data = await apiGetFriendReviews();
         const activities = await Promise.all((data || []).map(async (r: any) => {
+          const sourceType = r.action === 'interested' ? 'bookmark' : 'review';
           let comments: any[] = [];
-          try {
-            comments = await apiGetReviewComments(r.id);
-          } catch {
-            comments = Array.isArray(r.comments) ? r.comments : [];
+          if (sourceType === 'review') {
+            try {
+              comments = await apiGetReviewComments(r.id);
+            } catch {
+              comments = Array.isArray(r.comments) ? r.comments : [];
+            }
           }
           return {
           id: r.id,
-          action: 'rated',
+          action: r.action === 'interested' ? 'interested' : 'rated',
+          sourceType,
           userName: r.friendName || r.authorUsername || r.username || 'Anonymous',
-          userAvatar: r.friendAvatar || undefined,
+          userAvatar: resolveAvatarUrl(r),
           authorId: r.author || r.authorId || r.userId || r.uid || r.authorUid || '',
           eventId: r.event || r.eventId || '',
           eventName: r.eventName || '',
-          rating: r.rating,
-          reviewText: r.comment || '',
-          reviewImages: r.images || [],
+          rating: sourceType === 'review' ? r.rating : undefined,
+          reviewText: sourceType === 'review' ? (r.comment || '') : '',
+          reviewImages: sourceType === 'review' ? (r.images || []) : [],
           timestamp: r.createdAt,
           isLiked: (r.likedBy || []).includes(user?.uid ?? ''),
           likes: r.likes || 0,
-          comments,
+          comments: sourceType === 'review' ? comments : [],
         };
       })) as SocialActivity[];
         setFeedActivities(activities);
@@ -170,6 +175,7 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   const handleFeedReviewLike = async (activityId: string) => {
     const current = feedActivities.find((a) => a.id === activityId);
     if (!current) return;
+    if (current.sourceType === 'bookmark') return;
     const nextLiked = !current.isLiked;
 
     setFeedActivities((prev) =>
@@ -203,6 +209,8 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   };
 
   const handleFeedReviewComment = async (activityId: string, text: string) => {
+    const current = feedActivities.find((a) => a.id === activityId);
+    if (!current || current.sourceType === 'bookmark') return;
     try {
       const posted = await apiPostReviewComment(activityId, text);
       setFeedActivities((prev) =>
@@ -214,6 +222,21 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
       );
     } catch (error: any) {
       console.error('HomePage: Failed to post review comment:', error?.message ?? error);
+    }
+  };
+
+  const handleFeedDelete = async (activityId: string) => {
+    const activity = feedActivities.find((a) => a.id === activityId);
+    if (!activity) return;
+    try {
+      if (activity.sourceType === 'bookmark') {
+        await apiDismissFeedActivity(activityId);
+      } else {
+        await apiDeleteReview(activityId);
+      }
+      setFeedActivities((prev) => prev.filter((a) => a.id !== activityId));
+    } catch (error: any) {
+      console.error('HomePage: Failed to delete activity:', error?.message ?? error);
     }
   };
 
@@ -494,6 +517,7 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
                 }
               }}
               onPostComment={handleFeedReviewComment}
+              onDelete={handleFeedDelete}
             />
           ))}
           {feedActivities.length === 0 && (

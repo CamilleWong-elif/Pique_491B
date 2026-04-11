@@ -43,7 +43,7 @@ router.get("/", authenticate, async (req, res) => {
       users = batches.map((doc) => ({
         id: doc.id,
         name: doc.data().displayName || "Unknown",
-        avatar: doc.data().avatar || null,
+        avatar: doc.data().avatarDataUrl || doc.data().avatar || doc.data().photoURL || null,
         points: doc.data().points || 0,
       }));
     } else {
@@ -56,7 +56,7 @@ router.get("/", authenticate, async (req, res) => {
       users = snapshot.docs.map((doc) => ({
         id: doc.id,
         name: doc.data().displayName || "Unknown",
-        avatar: doc.data().avatar || null,
+        avatar: doc.data().avatarDataUrl || doc.data().avatar || doc.data().photoURL || null,
         points: doc.data().points || 0,
       }));
     }

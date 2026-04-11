@@ -1,5 +1,6 @@
 import { EventCard } from '@/components/EventCard';
 import { NavigationBar } from '@/components/NavigationBar';
+import { resolveAvatarUrl } from '@/utils/avatar';
 import { auth } from "@/firebase";
 import { apiGetEvents, apiGetUsers, apiGetFollowing } from '@/api';
 import * as Location from 'expo-location';
@@ -232,7 +233,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
           name: u.name || u.displayName || 'Unknown',
           lat: u.lat || 0,
           lng: u.lng || 0,
-          photoURL: u.photoURL ?? u.avatar ?? u.avatarDataUrl ?? null,
+          photoURL: resolveAvatarUrl(u) ?? null,
         }));
 
         setFriends(mapped);
@@ -547,7 +548,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
       {filteredFriends
         .filter((friend: any) => friend.lat != null && friend.lng != null && Number.isFinite(friend.lat) && Number.isFinite(friend.lng))
         .map((friend: any) => {
-          const friendImageUri = friend?.photoURL ?? friend?.avatar ?? friend?.photoUrl;
+          const friendImageUri = resolveAvatarUrl(friend);
           const friendInitial = String(friend?.name || 'U').trim().slice(0, 1).toUpperCase();
           return (
         <Marker

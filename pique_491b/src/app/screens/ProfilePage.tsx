@@ -12,6 +12,7 @@ import { EventCard } from '@/components/EventCard';
 import { NavigationBar } from '@/components/NavigationBar';
 import { useAuth } from '@/context/AuthContext';
 import type { Event } from '@/types/Event';
+import { resolveAvatarUrl } from '@/utils/avatar';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { Calendar, Camera, FileText, Heart, Pencil, Plus, X } from 'lucide-react-native';
@@ -100,7 +101,7 @@ export function ProfilePage({
         id: d.id,
         name: d.name ?? '',
         username: `@${d.username ?? ''}`,
-        avatar: d.avatar ?? '',
+        avatar: resolveAvatarUrl(d) ?? '',
       }))))
       .catch(() => setFollowers([]));
   }, [followerUids.join(','), user?.uid]);
@@ -113,7 +114,7 @@ export function ProfilePage({
         id: d.id,
         name: d.name ?? '',
         username: `@${d.username ?? ''}`,
-        avatar: d.avatar ?? '',
+        avatar: resolveAvatarUrl(d) ?? '',
       }))))
       .catch(() => setFollowing([]));
   }, [followingUids.join(','), user?.uid]);
@@ -527,21 +528,37 @@ export function ProfilePage({
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.removeBtn}
-                    onPress={async () => {
-                      if (!user?.uid) return;
-                      try {
-                        if (showFollowModal === 'followers') {
-                          // Remove follower: they unfollow us
-                          await apiUnfollowUser(user.uid);
-                          setRemovedFollowerIds(prev => new Set([...prev, item.id]));
-                        } else {
-                          // Unfollow them
-                          await apiUnfollowUser(item.id);
-                          setRemovedFollowingIds(prev => new Set([...prev, item.id]));
-                        }
-                      } catch (err) {
-                        console.error('Remove error:', err);
-                      }
+                    onPress={() => {
+                      const isFollower = showFollowModal === 'followers';
+                      Alert.alert(
+                        isFollower ? 'Remove Follower' : 'Unfollow',
+                        isFollower
+                          ? `Are you sure you want to remove ${item.name} as a follower?`
+                          : `Are you sure you want to unfollow ${item.name}?`,
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          {
+                            text: 'Remove',
+                            style: 'destructive',
+                            onPress: async () => {
+                              if (!user?.uid) return;
+                              try {
+                                if (isFollower) {
+                                  // Remove follower: they unfollow us
+                                  await apiUnfollowUser(user.uid);
+                                  setRemovedFollowerIds(prev => new Set([...prev, item.id]));
+                                } else {
+                                  // Unfollow them
+                                  await apiUnfollowUser(item.id);
+                                  setRemovedFollowingIds(prev => new Set([...prev, item.id]));
+                                }
+                              } catch (err) {
+                                console.error('Remove error:', err);
+                              }
+                            },
+                          },
+                        ]
+                      );
                     }}
                   >
                     <Text style={styles.removeBtnText}>Remove</Text>

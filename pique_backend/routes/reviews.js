@@ -5,6 +5,44 @@ const { FieldValue, FieldPath } = require("firebase-admin/firestore");
 
 const router = express.Router();
 
+function pickAvatarFromUserData(userData) {
+  if (!userData || typeof userData !== "object") return null;
+  return userData.avatarDataUrl || userData.avatar || userData.photoURL || null;
+}
+
+function pickAvatarFromReview(review) {
+  if (!review || typeof review !== "object") return null;
+  return review.avatarDataUrl || review.photoURL || review.avatar || review.friendAvatar || null;
+}
+
+function pickDisplayNameFromUserData(userData) {
+  if (!userData || typeof userData !== "object") return null;
+  return userData.displayName || userData.username || null;
+}
+
+function pickDisplayNameFromReview(review) {
+  if (!review || typeof review !== "object") return null;
+  return (
+    review.friendName ||
+    review.authorUsername ||
+    review.username ||
+    review.displayName ||
+    null
+  );
+}
+
+function getReviewAuthorUid(review) {
+  if (!review || typeof review !== "object") return "";
+  const candidate =
+    review.author ||
+    review.authorId ||
+    review.userId ||
+    review.uid ||
+    review.authorUid ||
+    "";
+  return typeof candidate === "string" ? candidate.trim() : "";
+}
+
 async function refreshEventReviewStats(eventId) {
   if (!eventId) return;
   const [eventFieldSnap, eventIdFieldSnap] = await Promise.all([
@@ -73,7 +111,7 @@ router.post("/", authenticate, async (req, res) => {
       eventName: eventDoc.data().name || "",
       author: req.user.uid,
       friendName: userData.displayName || "Anonymous",
-      friendAvatar: userData.avatar || null,
+      friendAvatar: userData.avatarDataUrl || userData.avatar || userData.photoURL || null,
       rating,
       comment: comment.trim(),
       createdAt: new Date().toISOString(),
@@ -132,8 +170,8 @@ router.get("/", authenticate, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/reviews/friends — Get reviews from people you follow plus your own
-// Used by HomePage activity feed, CommunityPage "Friend Reviews" tab
+// GET /api/reviews/friends — Get social activity from people you follow plus your own
+// Used by HomePage activity feed and CommunityPage "Friend Reviews" tab
 // ---------------------------------------------------------------------------
 router.get("/friends", authenticate, async (req, res) => {
   try {
@@ -143,6 +181,14 @@ router.get("/friends", authenticate, async (req, res) => {
     const viewerUid = req.user.uid;
 
     const currentUserDoc = await db.collection("users").doc(viewerUid).get();
+    const currentUserData = currentUserDoc.exists ? currentUserDoc.data() : {};
+    const dismissedFeedActivityIds = Array.isArray(currentUserData.dismissedFeedActivityIds)
+      ? currentUserData.dismissedFeedActivityIds
+      : [];
+    const dismissedFeedSet = new Set(
+      dismissedFeedActivityIds.filter((id) => typeof id === "string" && id.trim().length > 0)
+    );
+
     const followingIds = currentUserDoc.exists
       ? currentUserDoc.data().followingCount || []
       : [];
@@ -254,17 +300,135 @@ router.get("/friends", authenticate, async (req, res) => {
       }
     });
 
-    const allReviews = Array.from(allReviewsMap.values());
+    let allReviews = Array.from(allReviewsMap.values());
 
-    // Sort: most recent reviews first (ignore rating value)
-    allReviews.sort((a, b) => {
-      return (b.createdAt || "").localeCompare(a.createdAt || "");
+    const authorUids = Array.from(
+      new Set(
+        allReviews
+          .map((review) => getReviewAuthorUid(review))
+          .filter((uid) => typeof uid === "string" && uid.length > 0)
+      )
+    );
+
+    const authorProfilesByUid = new Map();
+    for (let i = 0; i < authorUids.length; i += 30) {
+      const batch = authorUids.slice(i, i + 30);
+      const usersSnap = await db.collection("users").where(FieldPath.documentId(), "in", batch).get();
+      usersSnap.docs.forEach((doc) => {
+        authorProfilesByUid.set(doc.id, doc.data());
+      });
+    }
+
+    allReviews = allReviews.map((review) => {
+      const authorUid = getReviewAuthorUid(review);
+      const authorProfile = authorUid ? authorProfilesByUid.get(authorUid) : null;
+      const resolvedAvatar = pickAvatarFromUserData(authorProfile) || pickAvatarFromReview(review);
+      const resolvedName = pickDisplayNameFromUserData(authorProfile) || pickDisplayNameFromReview(review);
+
+      if (!resolvedAvatar && !resolvedName) return review;
+
+      return {
+        ...review,
+        ...(resolvedAvatar ? { friendAvatar: resolvedAvatar } : {}),
+        ...(resolvedName ? { friendName: resolvedName } : {}),
+      };
     });
 
-    return res.json(allReviews.slice(0, 50));
+    // Build bookmark/interested activities from current likedEvents state.
+    // These are synthetic feed items so users can see bookmarked-event activity.
+    const relationshipUserIds = Array.from(new Set([viewerUid, ...friendIds]));
+    const relationshipProfilesByUid = new Map();
+    for (let i = 0; i < relationshipUserIds.length; i += 30) {
+      const batch = relationshipUserIds.slice(i, i + 30);
+      const usersSnap = await db.collection("users").where(FieldPath.documentId(), "in", batch).get();
+      usersSnap.docs.forEach((doc) => {
+        relationshipProfilesByUid.set(doc.id, doc.data());
+      });
+    }
+
+    const interestedRows = [];
+    const interestedEventIds = new Set();
+    relationshipProfilesByUid.forEach((userData, uid) => {
+      const likedEvents = Array.isArray(userData?.likedEvents) ? userData.likedEvents : [];
+      likedEvents.forEach((eventId) => {
+        if (typeof eventId !== "string" || !eventId.trim()) return;
+        interestedRows.push({
+          userId: uid,
+          eventId,
+          createdAt: userData?.updatedAt || userData?.createdAt || new Date().toISOString(),
+        });
+        interestedEventIds.add(eventId);
+      });
+    });
+
+    const eventNamesById = new Map();
+    const interestedEventIdList = Array.from(interestedEventIds);
+    for (let i = 0; i < interestedEventIdList.length; i += 30) {
+      const batch = interestedEventIdList.slice(i, i + 30);
+      const eventsSnap = await db.collection("events").where(FieldPath.documentId(), "in", batch).get();
+      eventsSnap.docs.forEach((doc) => {
+        const eventData = doc.data();
+        eventNamesById.set(doc.id, eventData?.name || "Event");
+      });
+    }
+
+    const interestedActivities = interestedRows.map((row) => {
+      const userData = relationshipProfilesByUid.get(row.userId) || {};
+      return {
+        id: `interested_${row.userId}_${row.eventId}`,
+        action: "interested",
+        author: row.userId,
+        authorId: row.userId,
+        userId: row.userId,
+        event: row.eventId,
+        eventId: row.eventId,
+        eventName: eventNamesById.get(row.eventId) || "Event",
+        friendName: pickDisplayNameFromUserData(userData) || "User",
+        friendAvatar: pickAvatarFromUserData(userData),
+        rating: null,
+        comment: "",
+        likes: 0,
+        likedBy: [],
+        comments: [],
+        createdAt: row.createdAt,
+      };
+    });
+
+    const allActivities = [...allReviews, ...interestedActivities];
+    allActivities.sort((a, b) => (String(b.createdAt || "")).localeCompare(String(a.createdAt || "")));
+
+    const visible = allActivities.filter((item) => item?.id && !dismissedFeedSet.has(item.id));
+
+    return res.json(visible.slice(0, 50));
   } catch (err) {
     console.error("GET /api/reviews/friends error:", err);
     return res.status(500).json({ error: "Failed to fetch friend reviews" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/reviews/feed/dismiss — Hide an activity card for this user only (does not unbookmark)
+// Must be registered before /:reviewId routes.
+// ---------------------------------------------------------------------------
+router.post("/feed/dismiss", authenticate, async (req, res) => {
+  try {
+    const activityId = String(req.body?.activityId || "").trim();
+    if (!activityId) {
+      return res.status(400).json({ error: "activityId is required" });
+    }
+
+    await db.collection("users").doc(req.user.uid).set(
+      {
+        dismissedFeedActivityIds: FieldValue.arrayUnion(activityId),
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+
+    return res.json({ dismissed: true });
+  } catch (err) {
+    console.error("POST /api/reviews/feed/dismiss error:", err);
+    return res.status(500).json({ error: "Failed to dismiss feed activity" });
   }
 });
 
