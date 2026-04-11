@@ -38,10 +38,9 @@ interface TicketTier {
 }
 
 const availableCategories = [
-  'Music', 'Art', 'Sports', 'Outdoor', 'Fitness', 'Nightlife',
-  'Workshop', 'Entertainment', 'Gaming', 'Social', 'Wellness',
-  'Adventure', 'Culture', 'Educational', 'Creative', 'Theater',
-  'Dance', 'Comedy', 'Food & Drink', 'Tech',
+  'Arts', 'Business', 'Comedy', 'Education', 'Family', 'Fashion',
+  'Film', 'Fitness', 'Food & Drink', 'Gaming', 'Health & Wellness', 'Music',
+  'Nightlife', 'Outdoors', 'Sports', 'Tech', 'Theater', 'Travel',
 ];
 
 const ageRangeOptions = ['Any', 'Under 18', '18+', '21+'];

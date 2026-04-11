@@ -13,9 +13,9 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 
 
 const ALL_CATEGORIES = [
-  'Music', 'Sports', 'Arts', 'Food & Drink', 'Tech', 'Outdoors', 'Comedy',
-  'Film', 'Theater', 'Gaming', 'Fitness', 'Nightlife', 'Family', 'Education',
-  'Fashion', 'Business', 'Health & Wellness', 'Travel', 'Charity', 'Religion',
+  'Arts', 'Business', 'Comedy', 'Education', 'Family', 'Fashion',
+  'Film', 'Fitness', 'Food & Drink', 'Gaming', 'Health & Wellness', 'Music',
+  'Nightlife', 'Outdoors', 'Sports', 'Tech', 'Theater', 'Travel',
 ];
 const mockNotifications: any[] = [];
 
@@ -406,32 +406,28 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
             </View>
           </View>
 
-          {/* Search Bar */}
-          <TouchableOpacity
-            style={styles.searchBar}
-            onPress={() => setIsSearchOpen(true)}
-            activeOpacity={1}
-          >
-            <Search size={16} color="#4C4C4C" />
+          {/* Search + Filter Card */}
+          <View style={styles.searchCard}>
+            <Search size={14} color="#9ca3af" />
             <TextInput
               style={styles.searchInput}
               value={searchQuery}
               onChangeText={setSearchQuery}
               onFocus={() => setIsSearchOpen(true)}
-              placeholder="Search for events..."
-              placeholderTextColor="#6b7280"
+              placeholder="Search events, places..."
+              placeholderTextColor="#9ca3af"
             />
-          </TouchableOpacity>
-        </View>
-
-        {/* Filter Button */}
-        <View style={styles.filterRow}>
-          <TouchableOpacity style={[styles.filterIconButton, isFiltered && styles.filterIconButtonActive]} onPress={openFilter}>
-            <SlidersHorizontal size={16} color={isFiltered ? '#ffffff' : '#374151'} />
-            <Text style={[styles.filterButtonText, isFiltered && styles.filterButtonTextActive]}>
-              Filter & Sort{isFiltered ? ' •' : ''}
-            </Text>
-          </TouchableOpacity>
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <X size={14} color="#9ca3af" />
+              </TouchableOpacity>
+            )}
+            <View style={styles.searchDivider} />
+            <TouchableOpacity style={styles.filterInlineButton} onPress={openFilter}>
+              <SlidersHorizontal size={16} color={isFiltered ? '#3b82f6' : '#374151'} />
+              {isFiltered && <View style={styles.filterActiveDot} />}
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Horizontal Carousel */}
@@ -784,48 +780,51 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   // Search
-  searchBar: {
+  searchCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#d1d5db',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     marginBottom: 20,
-    gap: 12,
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
   },
   searchInput: {
     flex: 1,
-    fontSize: 12,
-    color: '#111827',
-  },
-  filterRow: {
-    paddingHorizontal: 18,
-    marginBottom: 16,
-  },
-  filterIconButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    alignSelf: 'flex-start',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: '#f3f4f6',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  filterIconButtonActive: {
-    backgroundColor: '#3b82f6',
-    borderColor: '#3b82f6',
-  },
-  filterButtonText: {
     fontSize: 13,
-    fontWeight: '500',
-    color: '#374151',
+    color: '#111827',
+    paddingVertical: 0,
   },
-  filterButtonTextActive: {
-    color: '#ffffff',
+  searchDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: '#e5e7eb',
+  },
+  filterInlineButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  filterActiveDot: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#3b82f6',
+    borderWidth: 1.5,
+    borderColor: '#ffffff',
   },
   // Carousel
   carousel: {
