@@ -15,7 +15,7 @@ import type { Event } from '@/types/Event';
 import { resolveAvatarUrl } from '@/utils/avatar';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import { Calendar, Camera, FileText, Heart, Pencil, Plus, X } from 'lucide-react-native';
+import { Calendar, Camera, FileText, Heart, Pencil, X } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -60,6 +60,8 @@ export function ProfilePage({
   const [editingBio, setEditingBio] = useState('');
   const [editingPhotoURI, setEditingPhotoURI] = useState<string | null>(null);
   const [editingPhotoBase64, setEditingPhotoBase64] = useState<string | null>(null);
+  const [editingBannerURI, setEditingBannerURI] = useState<string | null>(null);
+  const [editingBannerBase64, setEditingBannerBase64] = useState<string | null>(null);
   const [usernameError, setUsernameError] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
   const [removedFollowerIds, setRemovedFollowerIds] = useState<Set<string>>(new Set());
@@ -86,6 +88,7 @@ export function ProfilePage({
     user?.photoURL ??
     DEFAULT_AVATAR;
   const bio = profile?.bio ?? '';
+  const bannerImage = (profile as any)?.bannerDataUrl ?? null;
 
   const followerUids: string[] = profile?.followerCount ?? [];
   const followingUids: string[] = profile?.followingCount ?? [];
@@ -234,6 +237,8 @@ export function ProfilePage({
     setEditingBio(bio);
     setEditingPhotoURI(null);
     setEditingPhotoBase64(null);
+    setEditingBannerURI(null);
+    setEditingBannerBase64(null);
     setUsernameError('');
     setShowEditProfile(true);
   };
@@ -262,6 +267,33 @@ export function ProfilePage({
       }
       setEditingPhotoURI(optimized.uri);
       setEditingPhotoBase64(optimized.base64);
+    }
+  };
+
+  const handlePickBanner = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please grant photo library access to change your banner.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [3, 1],
+      quality: 1,
+    });
+    if (!result.canceled && result.assets[0]) {
+      const optimized = await manipulateAsync(
+        result.assets[0].uri,
+        [{ resize: { width: 900, height: 300 } }],
+        { compress: 0.6, format: SaveFormat.JPEG, base64: true }
+      );
+      if (!optimized.base64) {
+        Alert.alert('Upload failed', 'Could not process selected image.');
+        return;
+      }
+      setEditingBannerURI(optimized.uri);
+      setEditingBannerBase64(optimized.base64);
     }
   };
 
@@ -298,6 +330,9 @@ export function ProfilePage({
 
       if (editingPhotoBase64) {
         updates.avatarDataUrl = `data:image/jpeg;base64,${editingPhotoBase64}`;
+      }
+      if (editingBannerBase64) {
+        updates.bannerDataUrl = `data:image/jpeg;base64,${editingBannerBase64}`;
       }
 
       await apiUpdateMe(updates);
@@ -372,10 +407,6 @@ export function ProfilePage({
 
   return (
     <View style={styles.container}>
-      {/* Create button — floats over header top-right */}
-      <TouchableOpacity style={styles.createButton} onPress={() => onNavigate('create')}>
-        <Plus size={20} color="#374151" />
-      </TouchableOpacity>
 
       <FlatList
         data={activeEvents}
@@ -387,8 +418,12 @@ export function ProfilePage({
         renderItem={renderEventItem}
         ListHeaderComponent={
           <View>
-            {/* Header Background */}
-            <View style={styles.headerBg} />
+            {/* Header Background / Banner */}
+            {bannerImage ? (
+              <Image source={{ uri: bannerImage }} style={styles.headerBg} resizeMode="cover" />
+            ) : (
+              <View style={styles.headerBg} />
+            )}
 
             {/* Profile Info */}
             <View style={styles.profileSection}>
@@ -581,6 +616,19 @@ export function ProfilePage({
               </TouchableOpacity>
             </View>
 
+            {/* Banner Image */}
+            <TouchableOpacity style={styles.editBannerSection} onPress={handlePickBanner} activeOpacity={0.85}>
+              {editingBannerURI || bannerImage ? (
+                <Image source={{ uri: editingBannerURI || bannerImage! }} style={styles.editBanner} resizeMode="cover" />
+              ) : (
+                <View style={styles.editBannerPlaceholder} />
+              )}
+              <View style={styles.editBannerOverlay}>
+                <Camera size={18} color="#ffffff" />
+                <Text style={styles.editBannerOverlayText}>Change Banner</Text>
+              </View>
+            </TouchableOpacity>
+
             {/* Profile Picture */}
             <View style={styles.editAvatarSection}>
               <Image
@@ -678,24 +726,7 @@ const styles = StyleSheet.create({
   },
   headerBg: {
     backgroundColor: '#d1d5db',
-    height: 110,
-  },
-  createButton: {
-    position: 'absolute',
-    top: 59,
-    right: 18,
-    zIndex: 20,
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#e5e7eb',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
+    height: 160,
   },
   profileSection: {
     paddingHorizontal: 26,
@@ -800,6 +831,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6b7280',
     textAlign: 'center',
+  },
+  // Banner
+  editBannerSection: {
+    width: '100%',
+    height: 150,
+    borderRadius: 10,
+    overflow: 'hidden',
+    marginBottom: 16,
+    position: 'relative',
+  },
+  editBanner: {
+    width: '100%',
+    height: '100%',
+  },
+  editBannerPlaceholder: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#d1d5db',
+  },
+  editBannerOverlay: {
+    position: 'absolute',
+    inset: 0,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  editBannerOverlayText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '600',
   },
   // Edit Profile
   editAvatarSection: {
