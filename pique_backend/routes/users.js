@@ -156,6 +156,7 @@ router.get("/:id", authenticate, async (req, res) => {
       bio: data.bio || "",
       avatar: data.avatarDataUrl || data.avatar || data.photoURL || null,
       avatarDataUrl: data.avatarDataUrl || null,
+      bannerDataUrl: data.bannerDataUrl || null,
       photoURL: data.photoURL || null,
       followerCount: data.followerCount || [],
       followingCount: data.followingCount || [],
