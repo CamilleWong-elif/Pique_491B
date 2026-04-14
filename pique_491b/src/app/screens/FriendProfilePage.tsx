@@ -143,6 +143,7 @@ export function FriendProfileScreen({
     username: "",
     bio: "",
     avatar: getAvatarWithFallback(friendName),
+    bannerDataUrl: null as string | null,
     followerUids: [] as string[],
     followingUids: [] as string[],
   });
@@ -204,6 +205,7 @@ export function FriendProfileScreen({
           username: userData?.username || "",
           bio: userData?.bio || bios[hash % bios.length],
           avatar: userData?.avatarDataUrl || userData?.avatar || userData?.photoURL || getAvatarWithFallback(friendName),
+          bannerDataUrl: userData?.bannerDataUrl ?? null,
           followerUids: userData?.followerCount ?? [],
           followingUids: userData?.followingCount ?? [],
         });
@@ -313,7 +315,11 @@ export function FriendProfileScreen({
         ListHeaderComponent={
           <View>
             {/* Header Background — same as ProfilePage */}
-            <View style={styles.headerBg} />
+            {friendData.bannerDataUrl ? (
+              <Image source={{ uri: friendData.bannerDataUrl }} style={styles.headerBg} resizeMode="cover" />
+            ) : (
+              <View style={styles.headerBg} />
+            )}
 
 
             {/* Profile Info */}
