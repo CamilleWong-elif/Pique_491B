@@ -4,15 +4,14 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
   TextInput,
   Platform,
-  StatusBar,
   Modal,
   Alert,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ArrowLeft,
   CreditCard,
@@ -108,13 +107,10 @@ export function PaymentScreen({ event, onBack, onPaymentComplete }: Props) {
     }, 2000);
   };
 
-  const topPad =
-    Platform.OS === "android" ? (StatusBar.currentHeight || 0) : 0;
-
   return (
     <SafeAreaView style={styles.root}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: 12 + topPad }]}>
+      <View style={[styles.header, { paddingTop: 12 }]}>
         <View style={styles.headerRow}>
           <TouchableOpacity
             onPress={onBack}

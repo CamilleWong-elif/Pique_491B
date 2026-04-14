@@ -132,7 +132,7 @@ export function NotificationsModal({ isOpen, onClose, notifications, onMarkAsRea
         {/* Sheet */}
         <View style={styles.sheet}>
           {/* Header */}
-          <View style={styles.header}>
+          <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
             <View style={styles.headerTopRow}>
               <Text style={styles.title}>Notifications</Text>
               <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
@@ -203,7 +203,6 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 24,
-    paddingTop: "10%",
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",

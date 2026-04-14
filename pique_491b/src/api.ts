@@ -154,7 +154,7 @@ export const apiCreateBooking = (data: { eventId: string; quantity: number; tota
 export const apiGetReviews = (eventId?: string) =>
   apiFetch(`/api/reviews${eventId ? `?eventId=${eventId}` : ''}`);
 
-export const apiPostReview = (data: { eventId: string; rating: number; comment: string }) =>
+export const apiPostReview = (data: { eventId: string; rating: number; comment: string; images?: string[] }) =>
   apiFetch('/api/reviews', { method: 'POST', body: JSON.stringify(data) });
 
 export const apiGetFriendReviews = () =>
@@ -177,12 +177,26 @@ export const apiGetReviewComments = (reviewId: string) =>
   apiFetch(`/api/reviews/${reviewId}/comments`);
 
 export type ReviewLiker = { userId: string; userName: string; userAvatar?: string | null };
+export type ActivityLiker = { userId: string; userName: string; userAvatar?: string | null };
 
 export const apiGetReviewLikes = (reviewId: string) =>
   apiFetch(`/api/reviews/${reviewId}/likes`) as Promise<ReviewLiker[]>;
 
 export const apiPostReviewComment = (reviewId: string, text: string) =>
   apiFetch(`/api/reviews/${reviewId}/comments`, { method: 'POST', body: JSON.stringify({ text }) });
+
+// ── Activities ──
+export const apiToggleActivityLike = (activityId: string) =>
+  apiFetch(`/api/activities/${activityId}/like`, { method: 'POST' });
+
+export const apiGetActivityLikes = (activityId: string) =>
+  apiFetch(`/api/activities/${activityId}/likes`) as Promise<ActivityLiker[]>;
+
+export const apiGetActivityComments = (activityId: string) =>
+  apiFetch(`/api/activities/${activityId}/comments`);
+
+export const apiPostActivityComment = (activityId: string, text: string) =>
+  apiFetch(`/api/activities/${activityId}/comments`, { method: 'POST', body: JSON.stringify({ text }) });
 
 // ── Leaderboard ──
 export const apiGetLeaderboard = (mode: 'friends' | 'global' = 'friends') =>

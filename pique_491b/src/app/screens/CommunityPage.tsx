@@ -7,6 +7,7 @@ import { resolveAvatarUrl } from '@/utils/avatar';
 import { Globe, Info, Search, Trophy, Users, X } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Placeholder data
 const mockFriends: any[] = [];
@@ -25,6 +26,7 @@ interface CommunityPageProps {
 
 export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }: CommunityPageProps) {
   const { profile } = useAuth();
+  const insets = useSafeAreaInsets();
   const currentUid = auth.currentUser?.uid ?? '';
   const [followingSet, setFollowingSet] = useState<Set<string>>(new Set(profile?.followingCount ?? []));
   const [activeTab, setActiveTab] = useState<Tab>('leaderboard');
@@ -141,7 +143,7 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
         stickyHeaderIndices={[0]}
       >
         {/* Sticky Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
           <Text style={styles.headerTitle}>Community</Text>
 
           {/* Tabs */}
@@ -407,7 +409,6 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#ffffff',
-    paddingTop: 59,
     paddingHorizontal: 18,
     paddingBottom: 16,
     zIndex: 10,

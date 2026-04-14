@@ -85,7 +85,7 @@ function normalizeReviewForResponse(id, review, requestedEventId) {
 // ---------------------------------------------------------------------------
 router.post("/", authenticate, async (req, res) => {
   try {
-    const { eventId, rating, comment } = req.body;
+    const { eventId, rating, comment, images } = req.body;
 
     if (!eventId) {
       return res.status(400).json({ error: "eventId is required" });
@@ -95,6 +95,19 @@ router.post("/", authenticate, async (req, res) => {
     }
     if (!comment || !comment.trim()) {
       return res.status(400).json({ error: "Review text is required" });
+    }
+    if (images !== undefined && !Array.isArray(images)) {
+      return res.status(400).json({ error: "images must be an array of URLs" });
+    }
+
+    const sanitizedImages = Array.isArray(images)
+      ? images
+          .filter((item) => typeof item === "string")
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0)
+      : [];
+    if (sanitizedImages.length > 10) {
+      return res.status(400).json({ error: "A maximum of 10 review images is allowed" });
     }
 
     const eventDoc = await db.collection("events").doc(eventId).get();
@@ -114,11 +127,27 @@ router.post("/", authenticate, async (req, res) => {
       friendAvatar: userData.avatarDataUrl || userData.avatar || userData.photoURL || null,
       rating,
       comment: comment.trim(),
+      images: sanitizedImages,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     const docRef = await db.collection("reviews").add(reviewData);
+
+    if (sanitizedImages.length > 0) {
+      const galleryRows = sanitizedImages.map((url) => ({
+        url,
+        userName: userData.displayName || userData.username || "Anonymous",
+      }));
+      await db.collection("events").doc(eventId).set(
+        {
+          userImages: FieldValue.arrayUnion(...galleryRows),
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    }
+
     await refreshEventReviewStats(eventId);
 
     const pointsEarned = comment.trim() ? 5 : 3;
@@ -334,8 +363,8 @@ router.get("/friends", authenticate, async (req, res) => {
       };
     });
 
-    // Build bookmark/interested activities from current likedEvents state.
-    // These are synthetic feed items so users can see bookmarked-event activity.
+    // Build bookmark/interested activities from current likedEvents state,
+    // then hydrate/create documents in the dedicated "activities" collection.
     const relationshipUserIds = Array.from(new Set([viewerUid, ...friendIds]));
     const relationshipProfilesByUid = new Map();
     for (let i = 0; i < relationshipUserIds.length; i += 30) {
@@ -372,10 +401,28 @@ router.get("/friends", authenticate, async (req, res) => {
       });
     }
 
+    const interestedActivityIds = interestedRows.map((row) => `interested_${row.userId}_${row.eventId}`);
+    const existingInterestedById = new Map();
+    for (let i = 0; i < interestedActivityIds.length; i += 30) {
+      const batch = interestedActivityIds.slice(i, i + 30);
+      const activitiesSnap = await db
+        .collection("activities")
+        .where(FieldPath.documentId(), "in", batch)
+        .get();
+      activitiesSnap.docs.forEach((doc) => {
+        existingInterestedById.set(doc.id, { id: doc.id, ...doc.data() });
+      });
+    }
+
+    const missingActivityWrites = [];
     const interestedActivities = interestedRows.map((row) => {
       const userData = relationshipProfilesByUid.get(row.userId) || {};
-      return {
-        id: `interested_${row.userId}_${row.eventId}`,
+      const activityId = `interested_${row.userId}_${row.eventId}`;
+      const existing = existingInterestedById.get(activityId);
+      const nextData = {
+        ...(existing || {}),
+        id: activityId,
+        type: "interested",
         action: "interested",
         author: row.userId,
         authorId: row.userId,
@@ -385,14 +432,25 @@ router.get("/friends", authenticate, async (req, res) => {
         eventName: eventNamesById.get(row.eventId) || "Event",
         friendName: pickDisplayNameFromUserData(userData) || "User",
         friendAvatar: pickAvatarFromUserData(userData),
-        rating: null,
-        comment: "",
-        likes: 0,
-        likedBy: [],
-        comments: [],
+        rating: existing?.rating ?? null,
+        comment: existing?.comment ?? "",
+        likes: existing?.likes ?? 0,
+        likedBy: Array.isArray(existing?.likedBy) ? existing.likedBy : [],
+        comments: Array.isArray(existing?.comments) ? existing.comments : [],
         createdAt: row.createdAt,
+        updatedAt: existing?.updatedAt || row.createdAt,
       };
+      if (!existing) {
+        missingActivityWrites.push(
+          db.collection("activities").doc(activityId).set(nextData, { merge: true })
+        );
+      }
+      return nextData;
     });
+
+    if (missingActivityWrites.length > 0) {
+      await Promise.allSettled(missingActivityWrites);
+    }
 
     const allActivities = [...allReviews, ...interestedActivities];
     allActivities.sort((a, b) => (String(b.createdAt || "")).localeCompare(String(a.createdAt || "")));
@@ -429,6 +487,67 @@ router.post("/feed/dismiss", authenticate, async (req, res) => {
   } catch (err) {
     console.error("POST /api/reviews/feed/dismiss error:", err);
     return res.status(500).json({ error: "Failed to dismiss feed activity" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/reviews/:reviewId — Delete a review authored by current user
+// ---------------------------------------------------------------------------
+router.delete("/:reviewId", authenticate, async (req, res) => {
+  try {
+    const reviewRef = db.collection("reviews").doc(req.params.reviewId);
+    const reviewDoc = await reviewRef.get();
+    if (!reviewDoc.exists) {
+      return res.status(404).json({ error: "Review not found" });
+    }
+
+    const review = reviewDoc.data() || {};
+    const authorUid = getReviewAuthorUid(review);
+    if (!authorUid || authorUid !== req.user.uid) {
+      return res.status(403).json({ error: "Not allowed to delete this review" });
+    }
+
+    const eventId = String(review.event || review.eventId || "").trim();
+    const reviewImages = Array.isArray(review.images)
+      ? review.images
+          .filter((item) => typeof item === "string")
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0)
+      : [];
+
+    await reviewRef.delete();
+
+    if (eventId) {
+      if (reviewImages.length > 0) {
+        const eventRef = db.collection("events").doc(eventId);
+        const eventDoc = await eventRef.get();
+        if (eventDoc.exists) {
+          const eventData = eventDoc.data() || {};
+          const existingUserImages = Array.isArray(eventData.userImages) ? eventData.userImages : [];
+          const reviewImageSet = new Set(reviewImages);
+          const nextUserImages = existingUserImages.filter((item) => {
+            if (typeof item === "string") return !reviewImageSet.has(item.trim());
+            if (!item || typeof item !== "object") return true;
+            const url = typeof item.url === "string" ? item.url.trim() : "";
+            return !url || !reviewImageSet.has(url);
+          });
+          await eventRef.set(
+            {
+              userImages: nextUserImages,
+              updatedAt: new Date().toISOString(),
+            },
+            { merge: true }
+          );
+        }
+      }
+
+      await refreshEventReviewStats(eventId);
+    }
+
+    return res.json({ deleted: true });
+  } catch (err) {
+    console.error("DELETE /api/reviews/:reviewId error:", err);
+    return res.status(500).json({ error: "Failed to delete review" });
   }
 });
 

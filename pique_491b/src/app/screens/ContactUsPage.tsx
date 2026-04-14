@@ -5,13 +5,12 @@ import {
     TouchableOpacity,
     Text,
     StyleSheet,
-    SafeAreaView,
     Platform,
-    StatusBar,
     Alert,
     KeyboardAvoidingView,
     ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft, Mail, User, MessageSquare, Send } from 'lucide-react-native';
 
 type Props = {
@@ -104,7 +103,6 @@ async function submitContactMessage(data: ContactForm) {
 export default function ContactUsPage({ onNavigate }: Props) {
     const [form, setForm] = useState<ContactForm>(INITIAL_FORM);
     const [isSending, setIsSending] = useState(false);
-    const topPad = Platform.OS === 'android' ? StatusBar.currentHeight || 0 : 0;
 
     const messageLength = useMemo(() => form.message.trim().length, [form.message]);
 
@@ -141,7 +139,7 @@ export default function ContactUsPage({ onNavigate }: Props) {
 
     return (
         <SafeAreaView style={styles.root}>
-            <View style={[styles.header, { paddingTop: 12 + topPad }]}> 
+            <View style={[styles.header, { paddingTop: 12 }]}>
                 <View style={styles.headerRow}>
                     <TouchableOpacity
                         onPress={() => onNavigate?.('home')}

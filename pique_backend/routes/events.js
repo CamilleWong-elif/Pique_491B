@@ -5,6 +5,10 @@ const { FieldValue } = require("firebase-admin/firestore");
 
 const router = express.Router();
 
+function buildInterestedActivityId(userId, eventId) {
+  return `interested_${userId}_${eventId}`;
+}
+
 function computeReviewStatsForEventReviews(reviews = []) {
   const rated = reviews.filter(
     (r) => typeof r?.rating === "number" && Number.isFinite(r.rating)
@@ -169,13 +173,39 @@ router.post("/:id/like", authenticate, async (req, res) => {
 
     const userRef = db.collection("users").doc(req.user.uid);
     const userDoc = await userRef.get();
-    const likedEvents = userDoc.data()?.likedEvents || [];
+    const userData = userDoc.exists ? userDoc.data() : {};
+    const likedEvents = Array.isArray(userData?.likedEvents) ? userData.likedEvents : [];
     const isLiked = likedEvents.includes(req.params.id);
+    const nowIso = new Date().toISOString();
+    const activityId = buildInterestedActivityId(req.user.uid, req.params.id);
+    const activityRef = db.collection("activities").doc(activityId);
 
     if (isLiked) {
       await userRef.set({ likedEvents: FieldValue.arrayRemove(req.params.id) }, { merge: true });
+      await activityRef.delete().catch(() => null);
     } else {
       await userRef.set({ likedEvents: FieldValue.arrayUnion(req.params.id) }, { merge: true });
+      await activityRef.set(
+        {
+          id: activityId,
+          type: "interested",
+          action: "interested",
+          author: req.user.uid,
+          authorId: req.user.uid,
+          userId: req.user.uid,
+          event: req.params.id,
+          eventId: req.params.id,
+          eventName: eventDoc.data()?.name || "Event",
+          friendName: userData?.displayName || userData?.username || "User",
+          friendAvatar: userData?.avatarDataUrl || userData?.avatar || userData?.photoURL || null,
+          likes: 0,
+          likedBy: [],
+          comments: [],
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        },
+        { merge: true }
+      );
     }
 
     return res.json({ liked: !isLiked });

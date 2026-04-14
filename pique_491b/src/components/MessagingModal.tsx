@@ -243,7 +243,7 @@ export function MessagingModal({ isOpen, onClose, onBack, onNavigate, conversati
   const Header = () => {
     if (!selectedConversation) {
       return (
-        <View style={[styles.header, { paddingTop: 16}]}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top + 8, 16) }]}>
           <TouchableOpacity onPress={onBack} style={styles.headerIconBtn}>
             <ArrowLeft size={20} color="#374151" />
           </TouchableOpacity>
@@ -254,7 +254,7 @@ export function MessagingModal({ isOpen, onClose, onBack, onNavigate, conversati
     }
 
     return (
-      <View style={[styles.header, {paddingTop: 16}]}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top + 8, 16) }]}>
         <TouchableOpacity
           onPress={() => setSelectedConversation(null)}
           style={styles.headerIconBtn}

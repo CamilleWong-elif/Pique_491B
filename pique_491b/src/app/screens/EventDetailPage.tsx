@@ -9,7 +9,6 @@ import {
   Pressable,
   Dimensions,
   Modal,
-  SafeAreaView,
   Image,
   FlatList,
   ActivityIndicator,
@@ -18,6 +17,7 @@ import {
   Platform,
   StatusBar,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ArrowLeft,
   Star,

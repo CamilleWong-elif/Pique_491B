@@ -9,14 +9,13 @@ import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
-  SafeAreaView,
-  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 type Props = {
   onNavigate: (page: string) => void;
@@ -31,7 +30,6 @@ export function ChangePasswordScreen({ onNavigate }: Props) {
   const [success, setSuccess] = useState<string | null>(null);
 
   const user = auth.currentUser;
-  const topPad = Platform.OS === "android" ? StatusBar.currentHeight || 0 : 0;
 
   const hasPasswordProvider = useMemo(
     () => !!user?.providerData.some((provider) => provider.providerId === "password"),
@@ -117,7 +115,7 @@ export function ChangePasswordScreen({ onNavigate }: Props) {
 
   return (
     <SafeAreaView style={styles.root}>
-      <View style={[styles.header, { paddingTop: 12 + topPad }]}>
+      <View style={[styles.header, { paddingTop: 12 }]}>
         <View style={styles.headerRow}>
           <TouchableOpacity
             onPress={() => onNavigate("settings")}

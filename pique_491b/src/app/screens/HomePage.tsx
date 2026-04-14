@@ -4,7 +4,7 @@ import { NotificationsModal } from '@/components/NotificationsModal';
 import { SocialActivity, SocialActivityCard } from '@/components/SocialActivityCard';
 import { SearchOverlay } from '@/components/SearchOverlay';
 import { useAuth } from '@/context/AuthContext';
-import { apiDeleteReview, apiDismissFeedActivity, apiGetEvents, apiGetFriendReviews, apiGetReviewComments, apiPostReviewComment, apiToggleLike, apiToggleReviewLike } from '@/api';
+import { apiDeleteReview, apiDismissFeedActivity, apiGetEvents, apiGetFriendReviews, apiGetReviewComments, apiPostActivityComment, apiPostReviewComment, apiToggleActivityLike, apiToggleLike, apiToggleReviewLike } from '@/api';
 import { resolveAvatarUrl } from '@/utils/avatar';
 import { Bell, Menu, MessageCircle, Plus, Search, SlidersHorizontal, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
@@ -137,7 +137,7 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
         const data = await apiGetFriendReviews();
         const activities = await Promise.all((data || []).map(async (r: any) => {
           const sourceType = r.action === 'interested' ? 'bookmark' : 'review';
-          let comments: any[] = [];
+          let comments: any[] = Array.isArray(r.comments) ? r.comments : [];
           if (sourceType === 'review') {
             try {
               comments = await apiGetReviewComments(r.id);
@@ -160,7 +160,7 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
           timestamp: r.createdAt,
           isLiked: (r.likedBy || []).includes(user?.uid ?? ''),
           likes: r.likes || 0,
-          comments: sourceType === 'review' ? comments : [],
+          comments,
         };
       })) as SocialActivity[];
         setFeedActivities(activities);
@@ -175,7 +175,6 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   const handleFeedReviewLike = async (activityId: string) => {
     const current = feedActivities.find((a) => a.id === activityId);
     if (!current) return;
-    if (current.sourceType === 'bookmark') return;
     const nextLiked = !current.isLiked;
 
     setFeedActivities((prev) =>
@@ -191,7 +190,11 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
     );
 
     try {
-      await apiToggleReviewLike(activityId);
+      if (current.sourceType === 'bookmark') {
+        await apiToggleActivityLike(activityId);
+      } else {
+        await apiToggleReviewLike(activityId);
+      }
     } catch (error: any) {
       setFeedActivities((prev) =>
         prev.map((a) =>
@@ -210,9 +213,11 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
 
   const handleFeedReviewComment = async (activityId: string, text: string) => {
     const current = feedActivities.find((a) => a.id === activityId);
-    if (!current || current.sourceType === 'bookmark') return;
+    if (!current) return;
     try {
-      const posted = await apiPostReviewComment(activityId, text);
+      const posted = current.sourceType === 'bookmark'
+        ? await apiPostActivityComment(activityId, text)
+        : await apiPostReviewComment(activityId, text);
       setFeedActivities((prev) =>
         prev.map((a) =>
           a.id === activityId
@@ -327,7 +332,7 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
           onPress={() => setIsMenuOpen(false)}
         />
         <View style={styles.menuPanel}>
-          <View style={styles.menuContent}>
+          <View style={[styles.menuContent, { paddingTop: insets.top + 12 }]}>
             {/* Close Button */}
             <TouchableOpacity
               style={styles.closeButton}

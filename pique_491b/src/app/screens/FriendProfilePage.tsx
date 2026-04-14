@@ -9,7 +9,6 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   Image,
   FlatList,
@@ -17,6 +16,7 @@ import {
   Pressable,
 } from "react-native";
 import { FileText, Heart, Calendar, X } from "lucide-react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 // ---- Types ----
 export type Event = {
