@@ -858,9 +858,11 @@ const styles = StyleSheet.create({
   // Carousel
   carousel: {
     marginBottom: 16,
+    overflow: 'visible',
   },
   carouselContent: {
     paddingHorizontal: 18,
+    paddingBottom: 6,
     gap: 12,
   },
   carouselItem: {
