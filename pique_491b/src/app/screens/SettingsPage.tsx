@@ -4,13 +4,12 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
   Switch,
   Platform,
-  StatusBar,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ChevronLeft,
   Bell,
@@ -34,7 +33,6 @@ export function SettingsScreen({ onNavigate }: Props) {
   const [showActivity, setShowActivity] = useState(true);
   const [language, setLanguage] = useState<Language>("English");
 
-  const topPad = Platform.OS === "android" ? (StatusBar.currentHeight || 0) : 0;
 
   const SettingRow = ({
     title,
@@ -96,7 +94,7 @@ export function SettingsScreen({ onNavigate }: Props) {
   return (
     <SafeAreaView style={styles.root}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: 12 + topPad }]}>
+      <View style={[styles.header, { paddingTop: 12 }]}>
         <View style={styles.headerRow}>
           <TouchableOpacity
             onPress={() => onNavigate("home")}

@@ -6,6 +6,7 @@ const authRoutes = require("../routes/auth");
 const eventsRoutes = require("../routes/events");
 const usersRoutes = require("../routes/users");
 const reviewsRoutes = require("../routes/reviews");
+const activitiesRoutes = require("../routes/activities");
 const leaderboardRoutes = require("../routes/leaderboard");
 const bookingsRoutes = require("../routes/bookings");
 const messagesRoutes = require("../routes/messages");
@@ -28,6 +29,7 @@ app.use("/api/auth", authRoutes);          // POST /api/auth/register
 app.use("/api/events", eventsRoutes);      // CRUD events
 app.use("/api/users", usersRoutes);        // User profiles
 app.use("/api/reviews", reviewsRoutes);    // Reviews + friend reviews
+app.use("/api/activities", activitiesRoutes); // Feed activities (interested + engagement)
 app.use("/api/leaderboard", leaderboardRoutes); // Points leaderboard
 app.use("/api/bookings", bookingsRoutes);  // Ticket bookings
 app.use("/api/messages", messagesRoutes);  // Conversations + messages

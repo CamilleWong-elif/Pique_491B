@@ -4,14 +4,13 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   FlatList,
   Image,
   Platform,
-  StatusBar,
 } from "react-native";
 import { ArrowLeft } from "lucide-react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 // Replace these imports with your RN data sources
 // import { mockFriendRatedEvents } from "../data/friendRatedEvents";
@@ -123,8 +122,6 @@ export function LeaderboardScreen({
 
   const handleEventPress = (eventId: string) => onNavigate("event", eventId);
 
-  const topPad = Platform.OS === "android" ? (StatusBar.currentHeight || 0) : 0;
-
   const renderItem = ({ item }: { item: FriendRatedEvent }) => {
     const event = mockEvents.find((e) => e.id === item.eventId);
     if (!event) return null;
@@ -195,7 +192,7 @@ export function LeaderboardScreen({
   return (
     <SafeAreaView style={styles.root}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: 12 + topPad }]}>
+      <View style={[styles.header, { paddingTop: 12 }]}>
         <View style={styles.headerTop}>
           <TouchableOpacity
             onPress={() => onNavigate("home")}

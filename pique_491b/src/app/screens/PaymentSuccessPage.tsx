@@ -4,11 +4,11 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   Platform,
 } from "react-native";
 import { CheckCircle } from "lucide-react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export type Event = {
   id: string;

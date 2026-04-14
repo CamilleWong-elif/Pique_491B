@@ -8,14 +8,13 @@ import {
   KeyboardAvoidingView,
   Linking,
   Platform,
-  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
@@ -78,7 +77,6 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<TextInput>(null);
   const flatListRef = useRef<FlatList>(null);
-  const insets = useSafeAreaInsets();
 
   // Listen for conversations the current user participates in
   useEffect(() => {
@@ -420,7 +418,7 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
   if (activeConvo) {
     return (
       <SafeAreaView style={styles.root}>
-        <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+        <View style={styles.header}>
           <TouchableOpacity onPress={() => { setActiveConvo(null); setReplyTo(null); }}>
             <ArrowLeft size={24} color="#111" />
           </TouchableOpacity>
@@ -507,7 +505,7 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
   // Conversation list view
   return (
     <SafeAreaView style={styles.root}>
-      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+      <View style={styles.header}>
         <TouchableOpacity onPress={onBack}>
           <ArrowLeft size={24} color="#111" />
         </TouchableOpacity>

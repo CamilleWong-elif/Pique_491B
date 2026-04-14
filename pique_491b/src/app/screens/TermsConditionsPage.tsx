@@ -1,25 +1,22 @@
 // TermsConditionsScreen.tsx
 import React from "react";
 import {
-  SafeAreaView,
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
   Platform,
-  StatusBar,
   Linking,
 } from "react-native";
 import { ArrowLeft } from "lucide-react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 type Props = {
   onNavigate: (page: string) => void;
 };
 
 export function TermsConditionsScreen({ onNavigate }: Props) {
-  const topPad = Platform.OS === "android" ? (StatusBar.currentHeight || 0) : 0;
-
   const SectionTitle = ({ children }: { children: React.ReactNode }) => (
     <Text style={styles.h2}>{children}</Text>
   );
@@ -40,7 +37,7 @@ export function TermsConditionsScreen({ onNavigate }: Props) {
   return (
     <SafeAreaView style={styles.root}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: 12 + topPad }]}>
+      <View style={[styles.header, { paddingTop: 12 }]}>
         <View style={styles.headerRow}>
           <TouchableOpacity
             onPress={() => onNavigate("home")}

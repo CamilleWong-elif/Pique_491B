@@ -4,13 +4,12 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   TouchableOpacity,
   Platform,
-  StatusBar,
   Linking,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { ArrowLeft, Mail, MessageCircle, Phone } from "lucide-react-native";
 
 type Props = {
@@ -18,8 +17,6 @@ type Props = {
 };
 
 export function PrivacyPolicyScreen({ onNavigate }: Props) {
-  const topPad = Platform.OS === "android" ? (StatusBar.currentHeight || 0) : 0;
-
   const openMail = (email: string) => Linking.openURL(`mailto:${email}`);
   const openPhone = (phone: string) => Linking.openURL(`tel:${phone}`);
 
@@ -41,7 +38,7 @@ export function PrivacyPolicyScreen({ onNavigate }: Props) {
   return (
     <SafeAreaView style={styles.root}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: 12 + topPad }]}>
+      <View style={[styles.header, { paddingTop: 12 }]}>
         <View style={styles.headerRow}>
           <TouchableOpacity
             onPress={() => onNavigate("home")}

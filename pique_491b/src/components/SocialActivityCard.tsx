@@ -18,7 +18,14 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useAuth } from "@/context/AuthContext";
-import { apiGetReviewComments, apiGetReviewLikes, type ReviewLiker } from "@/api";
+import {
+  apiGetActivityComments,
+  apiGetActivityLikes,
+  apiGetReviewComments,
+  apiGetReviewLikes,
+  type ActivityLiker,
+  type ReviewLiker,
+} from "@/api";
 import {
   Heart,
   MessageCircle,
@@ -102,6 +109,7 @@ export function SocialActivityCard({
   showEngagement = true,
 }: Props) {
   const { profile, user } = useAuth();
+  const isReviewActivity = activity.sourceType !== "bookmark";
   const isCompact = compact && activity.action === "rated";
   const showCompactEngagement = isCompact && showEngagement;
   const isOwner = !!activity.authorId && activity.authorId === user?.uid;
@@ -114,7 +122,7 @@ export function SocialActivityCard({
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentsError, setCommentsError] = useState<string | null>(null);
   const [likesModalVisible, setLikesModalVisible] = useState(false);
-  const [likers, setLikers] = useState<ReviewLiker[]>([]);
+  const [likers, setLikers] = useState<Array<ReviewLiker | ActivityLiker>>([]);
   const [likesLoading, setLikesLoading] = useState(false);
   const [likesError, setLikesError] = useState<string | null>(null);
   const [commentsModalVisible, setCommentsModalVisible] = useState(false);
@@ -142,7 +150,9 @@ export function SocialActivityCard({
     setCommentsLoading(true);
     setCommentsError(null);
     try {
-      const raw = await apiGetReviewComments(activity.id);
+      const raw = isReviewActivity
+        ? await apiGetReviewComments(activity.id)
+        : await apiGetActivityComments(activity.id);
       const mapped = Array.isArray(raw) ? raw.map((c) => mapApiComment(c as Record<string, unknown>)) : [];
       setLocalComments(mapped);
     } catch (e: unknown) {
@@ -151,7 +161,7 @@ export function SocialActivityCard({
     } finally {
       setCommentsLoading(false);
     }
-  }, [activity.id]);
+  }, [activity.comments, activity.id, isReviewActivity]);
 
   const toggleCommentsInline = () => {
     setShowComments((prev) => {
@@ -175,7 +185,9 @@ export function SocialActivityCard({
     setLikesError(null);
     void (async () => {
       try {
-        const data = await apiGetReviewLikes(activity.id);
+        const data = isReviewActivity
+          ? await apiGetReviewLikes(activity.id)
+          : await apiGetActivityLikes(activity.id);
         setLikers(Array.isArray(data) ? data : []);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : "Could not load likes";

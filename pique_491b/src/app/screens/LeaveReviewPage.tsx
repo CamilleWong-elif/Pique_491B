@@ -8,14 +8,16 @@ import {
   TouchableOpacity,
   TextInput,
   Image,
-  SafeAreaView,
   Platform,
-  StatusBar,
   Alert,
+  ActivityIndicator,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { ArrowLeft, CheckCircle, Star, Upload, X } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
-import { auth } from '@/firebase';
+import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { auth, storage } from '@/firebase';
 import { apiPostReview } from '@/api';
 
 // ----- Types (adjust to your app) -----
@@ -34,14 +36,18 @@ type Props = {
 
 type MediaItem = {
   uri: string;
-  type: "image" | "video";
+  type: "image";
 };
+
+const MAX_REVIEW_IMAGE_BYTES = 5 * 1024 * 1024;
+const REVIEW_IMAGE_MAX_DIMENSION = 1600;
 
 export function LeaveReviewScreen({ event, onBack, onReviewPosted }: Props) {
   const [rating, setRating] = useState(0);
   const [reviewText, setReviewText] = useState("");
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [posted, setPosted] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const ratingLabel = useMemo(() => {
     switch (rating) {
@@ -77,7 +83,7 @@ export function LeaveReviewScreen({ event, onBack, onReviewPosted }: Props) {
     const remaining = 10 - media.length;
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All, // images + videos
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
       selectionLimit: remaining, // iOS 14+ / Android varies by picker implementation
       quality: 0.9,
@@ -87,7 +93,7 @@ export function LeaveReviewScreen({ event, onBack, onReviewPosted }: Props) {
 
     const picked: MediaItem[] = result.assets.slice(0, remaining).map((a: ImagePicker.ImagePickerAsset) => ({
       uri: a.uri,
-      type: a.type === "video" ? "video" : "image",
+      type: "image",
     }));
 
     setMedia((prev) => [...prev, ...picked]);
@@ -106,18 +112,40 @@ export function LeaveReviewScreen({ event, onBack, onReviewPosted }: Props) {
       Alert.alert("Missing review", "Please add a short review before posting.");
       return;
     }
-    await apiPostReview({
-      eventId: event.id,
-      rating,
-      comment: reviewText,
-    });
-    setPosted(true);
+    setUploading(true);
+    try {
+      const imageUrls: string[] = [];
+      for (let i = 0; i < media.length; i += 1) {
+        const mediaItem = media[i];
+        const optimizedUri = await compressReviewImage(mediaItem.uri);
+        const response = await fetch(optimizedUri);
+        const blob = await response.blob();
+        const storageRef = ref(
+          storage,
+          `reviews/${event.id}/${auth.currentUser.uid}/${Date.now()}_${i}.jpg`
+        );
+        await uploadBytes(storageRef, blob);
+        const downloadUrl = await getDownloadURL(storageRef);
+        imageUrls.push(downloadUrl);
+      }
+
+      await apiPostReview({
+        eventId: event.id,
+        rating,
+        comment: reviewText,
+        images: imageUrls,
+      });
+      setPosted(true);
+    } catch (error) {
+      console.error("Review post error:", error);
+      Alert.alert("Upload failed", "Could not post review images. Please try again.");
+    } finally {
+      setUploading(false);
+    }
   };
 
   const canPost = rating > 0 && reviewText.trim().length > 0;
 
-  const topPad =
-    Platform.OS === "android" ? (StatusBar.currentHeight || 0) : 0;
 
   if (posted) {
     return (
@@ -137,7 +165,7 @@ export function LeaveReviewScreen({ event, onBack, onReviewPosted }: Props) {
   return (
     <SafeAreaView style={styles.root}>
       {/* Header (sticky) */}
-      <View style={[styles.header, { paddingTop: 12 + topPad }]}>
+      <View style={[styles.header, { paddingTop: 12 }]}>
         <TouchableOpacity onPress={onBack} accessibilityRole="button" accessibilityLabel="Back">
           <ArrowLeft size={24} color="#111" />
         </TouchableOpacity>
@@ -209,7 +237,7 @@ export function LeaveReviewScreen({ event, onBack, onReviewPosted }: Props) {
 
         {/* Photo / Video Upload */}
         <View style={styles.sectionRow}>
-          <Text style={styles.sectionTitle}>Add Photos or Videos</Text>
+          <Text style={styles.sectionTitle}>Add Photos</Text>
 
           <View style={styles.mediaGrid}>
             {media.map((m, idx) => (
@@ -224,11 +252,6 @@ export function LeaveReviewScreen({ event, onBack, onReviewPosted }: Props) {
                   <X size={16} color="#fff" />
                 </TouchableOpacity>
 
-                {m.type === "video" && (
-                  <View style={styles.videoBadge}>
-                    <Text style={styles.videoBadgeText}>VIDEO</Text>
-                  </View>
-                )}
               </View>
             ))}
 
@@ -245,7 +268,7 @@ export function LeaveReviewScreen({ event, onBack, onReviewPosted }: Props) {
             )}
           </View>
 
-          <Text style={styles.helperText}>Upload up to 10 photos or videos</Text>
+          <Text style={styles.helperText}>Upload up to 10 photos</Text>
         </View>
 
         {/* Tips */}
@@ -272,18 +295,54 @@ export function LeaveReviewScreen({ event, onBack, onReviewPosted }: Props) {
       <View style={styles.footer}>
         <TouchableOpacity
           onPress={handlePostReview}
-          disabled={!canPost}
-          style={[styles.postBtn, canPost ? styles.postBtnOn : styles.postBtnOff]}
+          disabled={!canPost || uploading}
+          style={[styles.postBtn, canPost && !uploading ? styles.postBtnOn : styles.postBtnOff]}
           accessibilityRole="button"
           accessibilityLabel="Post review"
         >
-          <Text style={[styles.postText, canPost ? styles.postTextOn : styles.postTextOff]}>
-            Post Review
-          </Text>
+          {uploading ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={[styles.postText, canPost ? styles.postTextOn : styles.postTextOff]}>
+              Post Review
+            </Text>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
+}
+
+async function compressReviewImage(uri: string): Promise<string> {
+  let workingUri = uri;
+  const attempts = [
+    { maxDim: REVIEW_IMAGE_MAX_DIMENSION, compress: 0.75 },
+    { maxDim: 1400, compress: 0.65 },
+    { maxDim: 1200, compress: 0.55 },
+    { maxDim: 1000, compress: 0.5 },
+  ];
+
+  for (const attempt of attempts) {
+    const processed = await manipulateAsync(
+      workingUri,
+      [{ resize: { width: attempt.maxDim } }],
+      { compress: attempt.compress, format: SaveFormat.JPEG }
+    );
+    workingUri = processed.uri;
+
+    const response = await fetch(workingUri);
+    const blob = await response.blob();
+    if (blob.size <= MAX_REVIEW_IMAGE_BYTES) {
+      return workingUri;
+    }
+  }
+
+  const lastResponse = await fetch(workingUri);
+  const lastBlob = await lastResponse.blob();
+  if (lastBlob.size > MAX_REVIEW_IMAGE_BYTES) {
+    throw new Error("Image exceeds review size limit after compression.");
+  }
+  return workingUri;
 }
 
 const styles = StyleSheet.create({

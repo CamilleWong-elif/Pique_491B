@@ -131,7 +131,7 @@ export function SearchOverlay({
           style={styles.modalRoot}
         >
           {/* Header */}
-          <View style={[styles.header, { paddingTop: Platform.OS === 'android' ? 8 : insets.top }]}>
+          <View style={[styles.header, { paddingTop: Math.max(insets.top, 8) }]}>
             {/* Top Bar */}
             <View style={styles.topRow}>
               <TouchableOpacity
