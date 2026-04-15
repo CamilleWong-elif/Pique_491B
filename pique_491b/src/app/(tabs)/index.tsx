@@ -40,6 +40,8 @@ export default function App() {
   const [selectedFriendName, setSelectedFriendName] = useState('');
   const [selectedEventId, setSelectedEventId] = useState<string>('');
   const [messageRecipientId, setMessageRecipientId] = useState<string | undefined>(undefined);
+  const [exploreInitialCategory, setExploreInitialCategory] = useState<string | undefined>(undefined);
+  const [exploreInitialSearchQuery, setExploreInitialSearchQuery] = useState<string | undefined>(undefined);
   const prevUidRef = useRef<string | null | undefined>(undefined);
 
   const isAuthenticated = !!user;
@@ -118,6 +120,14 @@ export default function App() {
     if (page === 'friendProfile') {
       const friendName = options?.friendName || param || '';
       setSelectedFriendName(friendName);
+    }
+    if (page === 'explore') {
+      setExploreInitialCategory(options?.category);
+      setExploreInitialSearchQuery(options?.searchQuery);
+    } else {
+      // Clear the seed once the user navigates away so it doesn't reapply later.
+      setExploreInitialCategory(undefined);
+      setExploreInitialSearchQuery(undefined);
     }
     setCurrentPage(page);
   };
@@ -202,7 +212,11 @@ export default function App() {
           />
         )}
         {showApp && currentPage === 'explore' && (
-          <ExplorePage onNavigate={handleNavigate} />
+          <ExplorePage
+            onNavigate={handleNavigate}
+            initialCategory={exploreInitialCategory}
+            initialSearchQuery={exploreInitialSearchQuery}
+          />
         )}
         {showApp && currentPage === 'leaderboard' && (
           <CommunityPage onNavigate={handleNavigate} />
