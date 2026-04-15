@@ -8,7 +8,7 @@ import { apiDeleteReview, apiDismissFeedActivity, apiGetEvents, apiGetFriendRevi
 import { resolveAvatarUrl } from '@/utils/avatar';
 import { Bell, Menu, MessageCircle, Plus, Search, SlidersHorizontal, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { FlatList, Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
@@ -116,7 +116,7 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   useEffect(() => {
     const fetchEvents = async () => {
       try {
-        const eventsList = await apiGetEvents();
+        const eventsList = await apiGetEvents({ limit: 25 });
         const normalized = eventsList.map((e: any) => ({
           ...e,
           lat: e.lat ?? e.latitude,
@@ -462,17 +462,22 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
         {isFiltered && allFilteredEvents.length === 0 && (
           <Text style={styles.emptyFeedText}>No events match the selected filters.</Text>
         )}
-        <ScrollView
+        <FlatList
           horizontal
+          data={allFilteredEvents}
+          keyExtractor={(event: any) => event.id}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.carouselContent}
           style={styles.carousel}
-        >
-          {allFilteredEvents.map((event: any) => {
+          initialNumToRender={4}
+          maxToRenderPerBatch={4}
+          windowSize={5}
+          removeClippedSubviews
+          renderItem={({ item: event }: { item: any }) => {
             const dateVal = event.date ?? event.startDate;
             const startDateStr = formattoMMDD(dateVal);
             return (
-              <View key={event.id} style={styles.carouselItem}>
+              <View style={styles.carouselItem}>
                 <EventCard
                   event={{
                     id: event.id,
@@ -492,8 +497,8 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
                 />
               </View>
             );
-          })}
-        </ScrollView>
+          }}
+        />
 
         {/* Activity Feed */}
         <View style={styles.feedContainer}>
@@ -551,8 +556,8 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
         initialQuery={searchQuery}
-        onNavigateToExplore={(category: string) =>
-          onNavigate('explore', undefined, { category })
+        onNavigateToExplore={(term: string) =>
+          onNavigate('explore', undefined, { searchQuery: term })
         }
         location={location}
         onLocationChange={setLocation}
