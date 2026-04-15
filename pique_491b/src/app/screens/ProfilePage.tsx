@@ -143,30 +143,29 @@ export function ProfilePage({
     const fetchData = async () => {
       setLoadingEvents(true);
       try {
-        // Fetch all events and filter posted ones client-side
-        const allEvents = await apiGetEvents();
-        const posted = allEvents
-          .filter((e: any) => e.createdBy === uid)
-          .map(mapToEvent);
-        setPostedEvents(posted);
+        // Posted: fetch directly by creator (no full-collection scan).
+        const postedRaw = await apiGetEvents({ createdBy: uid, limit: 500 });
+        setPostedEvents(postedRaw.map(mapToEvent));
 
-        // Filter liked events from all events
+        // Liked: fetch the specific IDs we already know about.
         const likedIds: string[] = profile?.likedEvents ?? [];
-        const likedSet = new Set(likedIds);
-        const liked = allEvents
-          .filter((e: any) => likedSet.has(e.id))
-          .map(mapToEvent);
-        setLikedEvents(liked);
+        if (likedIds.length > 0) {
+          const likedRaw = await apiGetEvents({ ids: likedIds });
+          setLikedEvents(likedRaw.map(mapToEvent));
+        } else {
+          setLikedEvents([]);
+        }
 
-        // Fetch booked events (non-blocking — profile still works if this fails)
+        // Booked: look up bookings, then fetch those event docs by ID.
         try {
           const bookings = await apiGetBookings();
-          const bookedEventIds = [...new Set(bookings.map((b: any) => b.eventId))];
-          const bookedIdSet = new Set(bookedEventIds);
-          const booked = allEvents
-            .filter((e: any) => bookedIdSet.has(e.id))
-            .map(mapToEvent);
-          setBookedEvents(booked);
+          const bookedEventIds = [...new Set(bookings.map((b: any) => b.eventId))].filter(Boolean);
+          if (bookedEventIds.length > 0) {
+            const bookedRaw = await apiGetEvents({ ids: bookedEventIds as string[] });
+            setBookedEvents(bookedRaw.map(mapToEvent));
+          } else {
+            setBookedEvents([]);
+          }
         } catch (bookingErr) {
           console.warn('Could not fetch bookings:', bookingErr);
         }
