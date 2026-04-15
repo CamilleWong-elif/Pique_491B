@@ -1,3 +1,5 @@
+export type EventSource = 'manual' | 'ticketmaster' | 'seatgeek' | 'ical';
+
 export type Event = {
   id: string;
   name: string;
@@ -10,4 +12,7 @@ export type Event = {
   rating?: number;
   distance?: number;
   createdAt?: string;
+  source?: EventSource;
+  externalId?: string;
+  externalUrl?: string;
 };

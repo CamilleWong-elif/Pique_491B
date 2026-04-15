@@ -35,6 +35,63 @@ const categories = [
 ];
 
 
+type StableMarkerProps = {
+  coordinate: { latitude: number; longitude: number };
+  onPress: (e: any) => void;
+  zIndex?: number;
+  circleStyle: any;
+  imageUrl?: string | null;
+  fallbackInitial: string;
+};
+
+// Renders letter first, prefetches the image async, then swaps to the image once it's
+// in RN's cache. tracksViewChanges flips to false after a brief paint window. This keeps
+// the main thread responsive (no 30 simultaneous in-marker network loads + continuous
+// native snapshotting) while still showing event thumbnails.
+function StableMarker({ coordinate, onPress, zIndex, circleStyle, imageUrl, fallbackInitial }: StableMarkerProps) {
+  const [imgReady, setImgReady] = useState(false);
+  const [tracking, setTracking] = useState(true);
+
+  useEffect(() => {
+    if (!imageUrl) return;
+    let cancelled = false;
+    Image.prefetch(imageUrl)
+      .then((ok) => { if (!cancelled && ok) setImgReady(true); })
+      .catch(() => { /* fall back to letter */ });
+    return () => { cancelled = true; };
+  }, [imageUrl]);
+
+  // Re-enable tracking whenever the rendered content changes (letter → image),
+  // then drop it back to false after the paint window so Android captures the new frame.
+  useEffect(() => {
+    setTracking(true);
+    const t = setTimeout(() => setTracking(false), 250);
+    return () => clearTimeout(t);
+  }, [imgReady]);
+
+  return (
+    <Marker
+      coordinate={coordinate}
+      anchor={{ x: 0.5, y: 0.5 }}
+      zIndex={zIndex}
+      tracksViewChanges={tracking}
+      onPress={onPress}
+    >
+      <View collapsable={false} style={circleStyle}>
+        {imgReady && imageUrl ? (
+          <Image
+            source={{ uri: imageUrl }}
+            style={{ width: 26, height: 26, borderRadius: 13 }}
+            resizeMode="cover"
+          />
+        ) : (
+          <Text style={{ fontSize: 12, fontWeight: '800', color: '#111827' }}>{fallbackInitial}</Text>
+        )}
+      </View>
+    </Marker>
+  );
+}
+
 interface ExplorePageProps {
   onNavigate: (page: string, eventId?: string, options?: any) => void;
   onOpenMessages?: () => void;
@@ -152,11 +209,16 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
   };
 
   // Fetch raw events from Firestore (normalize latitude/longitude -> lat/lng, categories -> category)
+  // Search is applied client-side in the filteredEvents useMemo — no need to refetch per keystroke.
   useEffect(() => {
     if (!auth.currentUser) return;
     const fetchEvents = async () => {
       try {
-        const eventsList = await apiGetEvents();
+        const primaryCategory = appliedCategories[0];
+        const eventsList = await apiGetEvents({
+          limit: 80,
+          category: primaryCategory,
+        });
         console.log('ExplorePage: Fetched events count:', eventsList.length);
         const normalized = eventsList.map((e: any) => ({
           ...e,
@@ -171,7 +233,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
     };
 
     fetchEvents();
-  }, [auth.currentUser]);
+  }, [auth.currentUser, appliedCategories]);
 
   const getCityKey = (event: any): string | null => {
     const rawCity = (event?.city ?? event?.location ?? '').toString().trim();
@@ -366,7 +428,12 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
       : eventsByCategory;
 
     const now = new Date();
-    let eventsInRange = eventsBySearch.filter((event: any) => withinDistance(getEventCoords(event)));
+    // Show all events with valid coordinates. The map viewport lets the user
+    // naturally browse what's near them; forcing a 50mi distance filter here
+    // was causing events to vanish when the device's reported location was
+    // far from where the event pool actually is (e.g. emulator in Mountain
+    // View, events in LA).
+    let eventsInRange = eventsBySearch.filter((event: any) => getEventCoords(event));
 
     if (appliedQuickDate === 'today') {
       eventsInRange = eventsInRange.filter((e: any) => getEventDate(e).toDateString() === now.toDateString());
@@ -464,6 +531,35 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
     setVisibleMeetInMiddleCount(MEET_IN_MIDDLE_PAGE_SIZE);
   }, [meetInMiddleEvents, MEET_IN_MIDDLE_PAGE_SIZE]);
 
+  // Cap markers to a fixed max so the map never tries to render hundreds.
+  // No viewport culling — it was causing markers to disappear on region changes.
+  const MAX_VISIBLE_MARKERS = 30;
+  const visibleMarkerEvents = useMemo(() => {
+    return filteredEvents
+      .filter((e: any) => !!getEventCoords(e))
+      .slice(0, MAX_VISIBLE_MARKERS);
+  }, [filteredEvents, cityCoordsCache]);
+
+  // Pan/zoom the map to fit the current filtered events so users always see
+  // their results, even if their location is far from where the events are.
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const coordsList = filteredEvents
+      .map((e: any) => getEventCoords(e))
+      .filter((c): c is { lat: number; lng: number } => !!c);
+    if (coordsList.length === 0) return;
+    const timer = setTimeout(() => {
+      mapRef.current?.fitToCoordinates(
+        coordsList.map((c) => ({ latitude: c.lat, longitude: c.lng })),
+        {
+          edgePadding: { top: 80, right: 60, bottom: 200, left: 60 },
+          animated: true,
+        },
+      );
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [filteredEvents]);
+
   return (
     <View style={styles.container}>
       <View style={[styles.topUI, { paddingTop: insets.top }]} pointerEvents="none"></View>
@@ -495,8 +591,8 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
         if (active) updatePreviewAnchor(active);
       }}
     >
-      {/* Event Markers — only render when we have valid coordinates */}
-      {filteredEvents
+      {/* Event Markers — only render those inside the current map viewport */}
+      {visibleMarkerEvents
         .map((event: any) => {
           const coords = getEventCoords(event);
           if (!coords) return null;
@@ -509,37 +605,26 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
               coords.lat,
               coords.lng
             ) <= meetInMiddleRadiusMiles;
-          const eventImageUri =
-            event?.imageUrl ??
-            event?.image ??
-            (Array.isArray(event?.photos) ? event.photos[0] : undefined);
           const eventInitial = String(event?.name || 'E').trim().slice(0, 1).toUpperCase();
           return (
-        <Marker
+        <StableMarker
           key={event.id}
           coordinate={{ latitude: coords.lat, longitude: coords.lng }}
           zIndex={isMeetInMiddleEvent ? 3 : 1}
+          circleStyle={[
+            styles.markerCircle,
+            styles.markerEvent,
+            isMeetInMiddleEvent && styles.markerEventMidpointMatch,
+          ]}
+          imageUrl={event?.imageUrl || null}
+          fallbackInitial={eventInitial}
           onPress={(e) => {
             (e as any)?.stopPropagation?.();
             setSelectedFriendPreview(null);
             setSelectedEventPreview(event);
             updatePreviewAnchor(coords);
           }}
-        >
-          <View
-            style={[
-              styles.markerCircle,
-              styles.markerEvent,
-              isMeetInMiddleEvent && styles.markerEventMidpointMatch,
-            ]}
-          >
-            {eventImageUri ? (
-              <Image source={{ uri: eventImageUri }} style={styles.markerImage} />
-            ) : (
-              <Text style={styles.markerFallbackText}>{eventInitial}</Text>
-            )}
-          </View>
-        </Marker>
+        />
           );
         })
         .filter(Boolean)}
@@ -551,24 +636,19 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
           const friendImageUri = resolveAvatarUrl(friend);
           const friendInitial = String(friend?.name || 'U').trim().slice(0, 1).toUpperCase();
           return (
-        <Marker
+        <StableMarker
           key={friend.id}
           coordinate={{ latitude: friend.lat, longitude: friend.lng }}
+          circleStyle={[styles.markerCircle, styles.markerFriend]}
+          imageUrl={friendImageUri || null}
+          fallbackInitial={friendInitial}
           onPress={(e) => {
             (e as any)?.stopPropagation?.();
             setSelectedEventPreview(null);
             setSelectedFriendPreview(friend);
             updatePreviewAnchor({ lat: friend.lat, lng: friend.lng });
           }}
-        >
-          <View style={[styles.markerCircle, styles.markerFriend]}>
-            {friendImageUri ? (
-              <Image source={{ uri: friendImageUri }} style={styles.markerImage} />
-            ) : (
-              <Text style={styles.markerFallbackText}>{friendInitial}</Text>
-            )}
-          </View>
-        </Marker>
+        />
           );
         })}
 

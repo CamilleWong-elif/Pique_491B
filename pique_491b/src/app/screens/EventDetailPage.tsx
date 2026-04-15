@@ -16,6 +16,8 @@ import {
   NativeSyntheticEvent,
   Platform,
   StatusBar,
+  Linking,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -322,8 +324,30 @@ export function EventDetailScreen({
     ));
 
 
+  const isExternalEvent =
+    !!(event as any)?.externalUrl &&
+    (event as any)?.source &&
+    (event as any).source !== 'manual';
+
   const handleBookClick = async () => {
     if (booking) return;
+
+    if (isExternalEvent) {
+      const url = (event as any).externalUrl as string;
+      try {
+        const supported = await Linking.canOpenURL(url);
+        if (!supported) {
+          Alert.alert('Cannot open link', 'This event link is not supported on your device.');
+          return;
+        }
+        await Linking.openURL(url);
+      } catch (err) {
+        console.error('Failed to open external event URL:', err);
+        Alert.alert('Unable to open link', 'Please try again.');
+      }
+      return;
+    }
+
     setBooking(true);
     try {
       await apiCreateBooking({
@@ -712,9 +736,11 @@ export function EventDetailScreen({
             activeOpacity={0.9}
             disabled={booking}
             accessibilityRole="button"
-            accessibilityLabel="Book Now"
+            accessibilityLabel={isExternalEvent ? 'Get Tickets' : 'Book Now'}
           >
-            <Text style={styles.bookText}>{booking ? 'Booking...' : 'Book Now'}</Text>
+            <Text style={styles.bookText}>
+              {booking ? 'Booking...' : isExternalEvent ? 'Get Tickets' : 'Book Now'}
+            </Text>
           </TouchableOpacity>
         </View>
       )}
