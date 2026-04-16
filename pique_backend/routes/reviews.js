@@ -43,6 +43,33 @@ function getReviewAuthorUid(review) {
   return typeof candidate === "string" ? candidate.trim() : "";
 }
 
+function normalizeReviewImages(images) {
+  if (!Array.isArray(images)) return [];
+  return images
+    .map((item) => {
+      if (typeof item === "string") return item.trim();
+      if (!item || typeof item !== "object") return "";
+      const candidate =
+        item.url ||
+        item.uri ||
+        item.image ||
+        item.imageUrl ||
+        item.src ||
+        item.downloadURL ||
+        "";
+      return typeof candidate === "string" ? candidate.trim() : "";
+    })
+    .filter((url) => url.length > 0);
+}
+
+function withNormalizedReviewImages(review) {
+  if (!review || typeof review !== "object") return review;
+  return {
+    ...review,
+    images: normalizeReviewImages(review.images),
+  };
+}
+
 async function refreshEventReviewStats(eventId) {
   if (!eventId) return;
   const [eventFieldSnap, eventIdFieldSnap] = await Promise.all([
@@ -72,11 +99,12 @@ async function refreshEventReviewStats(eventId) {
 }
 
 function normalizeReviewForResponse(id, review, requestedEventId) {
+  const normalizedReview = withNormalizedReviewImages(review);
   return {
     id,
-    ...review,
-    event: review.event || review.eventId || requestedEventId || "",
-    eventId: review.eventId || review.event || requestedEventId || "",
+    ...normalizedReview,
+    event: normalizedReview.event || normalizedReview.eventId || requestedEventId || "",
+    eventId: normalizedReview.eventId || normalizedReview.event || requestedEventId || "",
   };
 }
 
@@ -236,17 +264,17 @@ router.get("/friends", authenticate, async (req, res) => {
     // Always include the current user's reviews (home activity feed + community when following nobody).
     const ownByAuthor = await db.collection("reviews").where("author", "==", viewerUid).get();
     ownByAuthor.docs.forEach((doc) => {
-      allReviewsMap.set(doc.id, { id: doc.id, ...doc.data() });
+      allReviewsMap.set(doc.id, { id: doc.id, ...withNormalizedReviewImages(doc.data()) });
     });
     const [ownByAuthorId, ownByUserId] = await Promise.all([
       db.collection("reviews").where("authorId", "==", viewerUid).limit(80).get(),
       db.collection("reviews").where("userId", "==", viewerUid).limit(80).get(),
     ]);
     ownByAuthorId.docs.forEach((doc) => {
-      allReviewsMap.set(doc.id, { id: doc.id, ...doc.data() });
+      allReviewsMap.set(doc.id, { id: doc.id, ...withNormalizedReviewImages(doc.data()) });
     });
     ownByUserId.docs.forEach((doc) => {
-      allReviewsMap.set(doc.id, { id: doc.id, ...doc.data() });
+      allReviewsMap.set(doc.id, { id: doc.id, ...withNormalizedReviewImages(doc.data()) });
     });
 
     const friendUidSet = new Set(friendIds);
@@ -275,7 +303,7 @@ router.get("/friends", authenticate, async (req, res) => {
         .get();
 
       for (const doc of snap.docs) {
-        allReviewsMap.set(doc.id, { id: doc.id, ...doc.data() });
+        allReviewsMap.set(doc.id, { id: doc.id, ...withNormalizedReviewImages(doc.data()) });
       }
     }
 
@@ -325,7 +353,7 @@ router.get("/friends", authenticate, async (req, res) => {
         );
 
       if (matchesSelf || matchesFriend) {
-        allReviewsMap.set(doc.id, { id: doc.id, ...review });
+        allReviewsMap.set(doc.id, { id: doc.id, ...withNormalizedReviewImages(review) });
       }
     });
 

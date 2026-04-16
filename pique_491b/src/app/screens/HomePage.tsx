@@ -7,8 +7,8 @@ import { useAuth } from '@/context/AuthContext';
 import { apiDeleteReview, apiDismissFeedActivity, apiGetEvents, apiGetFriendReviews, apiGetReviewComments, apiPostActivityComment, apiPostReviewComment, apiToggleActivityLike, apiToggleLike, apiToggleReviewLike } from '@/api';
 import { resolveAvatarUrl } from '@/utils/avatar';
 import { Bell, Menu, MessageCircle, Plus, Search, SlidersHorizontal, X } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
-import { Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, FlatList, Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
@@ -40,8 +40,11 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [notifications, setNotifications] = useState(mockNotifications);
   const [events, setEvents] = useState<any[]>([]);
+  const [isEventsLoading, setIsEventsLoading] = useState(true);
   const [likedEventIds, setLikedEventIds] = useState<Set<string>>(new Set());
   const [feedActivities, setFeedActivities] = useState<SocialActivity[]>([]);
+  const [isFeedLoading, setIsFeedLoading] = useState(true);
+  const skeletonPulse = useRef(new Animated.Value(0.45)).current;
   const insets = useSafeAreaInsets();
 
   // Filter state
@@ -61,6 +64,32 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   const [appliedSortOrder, setAppliedSortOrder] = useState<'soonest' | 'latest'>('soonest');
 
   const isFiltered = appliedCategories.length > 0 || appliedQuickDate !== null || appliedStartDate !== null || appliedEndDate !== null;
+  const isHomeLoading = isEventsLoading || isFeedLoading;
+
+  useEffect(() => {
+    if (!isHomeLoading) return;
+    skeletonPulse.setValue(0.45);
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(skeletonPulse, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(skeletonPulse, {
+          toValue: 0.45,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+      ]),
+      { iterations: -1 },
+    );
+    animation.start();
+    return () => {
+      animation.stop();
+      skeletonPulse.setValue(0.45);
+    };
+  }, [isHomeLoading, skeletonPulse]);
 
   // Sync liked events from profile
   useEffect(() => {
@@ -115,8 +144,9 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
 
   useEffect(() => {
     const fetchEvents = async () => {
+      setIsEventsLoading(true);
       try {
-        const eventsList = await apiGetEvents();
+        const eventsList = await apiGetEvents({ limit: 25 });
         const normalized = eventsList.map((e: any) => ({
           ...e,
           lat: e.lat ?? e.latitude,
@@ -126,6 +156,8 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
         setEvents(normalized);
       } catch (error: any) {
         console.error('HomePage: Error fetching events:', error?.message ?? error);
+      } finally {
+        setIsEventsLoading(false);
       }
     };
     fetchEvents();
@@ -133,6 +165,7 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
 
   useEffect(() => {
     const fetchFeedReviews = async () => {
+      setIsFeedLoading(true);
       try {
         const data = await apiGetFriendReviews();
         const activities = await Promise.all((data || []).map(async (r: any) => {
@@ -167,6 +200,8 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
       } catch (error: any) {
         console.error('HomePage: Error fetching activity feed reviews:', error?.message ?? error);
         setFeedActivities([]);
+      } finally {
+        setIsFeedLoading(false);
       }
     };
     fetchFeedReviews();
@@ -459,73 +494,112 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
         </View>
 
         {/* Horizontal Carousel */}
-        {isFiltered && allFilteredEvents.length === 0 && (
+        {!isEventsLoading && isFiltered && allFilteredEvents.length === 0 && (
           <Text style={styles.emptyFeedText}>No events match the selected filters.</Text>
         )}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.carouselContent}
-          style={styles.carousel}
-        >
-          {allFilteredEvents.map((event: any) => {
-            const dateVal = event.date ?? event.startDate;
-            const startDateStr = formattoMMDD(dateVal);
-            return (
-              <View key={event.id} style={styles.carouselItem}>
-                <EventCard
-                  event={{
-                    id: event.id,
-                    name: event.name ?? '',
-                    imageUrl: event.imageUrl ?? event.image,
-                    startDate: startDateStr ?? event.startDate,
-                    endDate: event.endDate,
-                    category: event.category,
-                    city: event.city ?? event.location,
-                    pricePoint: event.pricePoint,
-                    rating: event.rating,
-                    distance: event.distance,
-                  }}
-                  onPress={() => onNavigate('event', event.id)}
-                  isBookmarked={likedEventIds.has(event.id)}
-                  onBookmarkPress={handleBookmarkPress}
-                />
-              </View>
-            );
-          })}
-        </ScrollView>
+        {isEventsLoading ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.carouselContent} style={styles.carousel}>
+            {Array.from({ length: 3 }).map((_, idx) => (
+              <Animated.View key={`home-carousel-skeleton-${idx}`} style={[styles.carouselSkeletonCard, { opacity: skeletonPulse }]}>
+                <View style={[styles.skeletonBlock, styles.carouselSkeletonImage]} />
+                <View style={[styles.skeletonBlock, styles.carouselSkeletonTitle]} />
+                <View style={[styles.skeletonBlock, styles.carouselSkeletonMeta]} />
+              </Animated.View>
+            ))}
+          </ScrollView>
+        ) : (
+          <FlatList
+            horizontal
+            data={allFilteredEvents}
+            keyExtractor={(event: any) => event.id}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.carouselContent}
+            style={styles.carousel}
+            initialNumToRender={4}
+            maxToRenderPerBatch={4}
+            windowSize={5}
+            removeClippedSubviews
+            renderItem={({ item: event }: { item: any }) => {
+              const dateVal = event.date ?? event.startDate;
+              const startDateStr = formattoMMDD(dateVal);
+              return (
+                <View style={styles.carouselItem}>
+                  <EventCard
+                    event={{
+                      id: event.id,
+                      name: event.name ?? '',
+                      imageUrl: event.imageUrl ?? event.image,
+                      startDate: startDateStr ?? event.startDate,
+                      endDate: event.endDate,
+                      category: event.category,
+                      city: event.city ?? event.location,
+                      pricePoint: event.pricePoint,
+                      rating: event.rating,
+                      distance: event.distance,
+                    }}
+                    onPress={() => onNavigate('event', event.id)}
+                    isBookmarked={likedEventIds.has(event.id)}
+                    onBookmarkPress={handleBookmarkPress}
+                  />
+                </View>
+              );
+            }}
+          />
+        )}
 
         {/* Activity Feed */}
         <View style={styles.feedContainer}>
           <Text style={styles.feedTitle}>Activity Feed</Text>
-          {feedActivities.map((activity) => ({ ...activity, isSaved: likedEventIds.has(activity.eventId || '') })).map((activity) => (
-            <SocialActivityCard
-              key={activity.id}
-              activity={activity}
-              onClick={() => onNavigate('event', activity.eventId || activity.eventName)}
-              onFriendClick={(userIdOrUsername: string) =>
-                onNavigate('friendProfile', undefined, { friendName: userIdOrUsername })
-              }
-              onLike={handleFeedReviewLike}
-              onSave={async (_activityId, saved) => {
-                const eventId = activity.eventId;
-                if (!eventId) return;
-                try {
-                  await apiToggleLike(eventId);
-                  setLikedEventIds(prev => {
-                    const next = new Set(prev);
-                    if (saved) next.add(eventId); else next.delete(eventId);
-                    return next;
-                  });
-                } catch (err) {
-                  console.error('Feed bookmark error:', err);
+          {isFeedLoading ? (
+            Array.from({ length: 3 }).map((_, idx) => (
+              <Animated.View key={`home-feed-skeleton-${idx}`} style={[styles.feedSkeletonCard, { opacity: skeletonPulse }]}>
+                <View style={styles.feedSkeletonHeader}>
+                  <View style={[styles.skeletonBlock, styles.feedSkeletonAvatar]} />
+                  <View style={[styles.skeletonBlock, styles.feedSkeletonHeaderLine]} />
+                </View>
+                <View style={styles.feedSkeletonActionsRow}>
+                  <View style={styles.feedSkeletonLeftActions}>
+                    <View style={[styles.skeletonBlock, styles.feedSkeletonIcon]} />
+                    <View style={[styles.skeletonBlock, styles.feedSkeletonIcon]} />
+                  </View>
+                  <View style={[styles.skeletonBlock, styles.feedSkeletonDelete]} />
+                </View>
+                <View style={styles.feedSkeletonFooterRow}>
+                  <View style={[styles.skeletonBlock, styles.feedSkeletonMetaLine]} />
+                  <View style={[styles.skeletonBlock, styles.feedSkeletonDate]} />
+                </View>
+              </Animated.View>
+            ))
+          ) : (
+            feedActivities.map((activity) => ({ ...activity, isSaved: likedEventIds.has(activity.eventId || '') })).map((activity) => (
+              <SocialActivityCard
+                key={activity.id}
+                activity={activity}
+                onClick={() => onNavigate('event', activity.eventId || activity.eventName)}
+                onFriendClick={(userIdOrUsername: string) =>
+                  onNavigate('friendProfile', undefined, { friendName: userIdOrUsername })
                 }
-              }}
-              onPostComment={handleFeedReviewComment}
-              onDelete={handleFeedDelete}
-            />
-          ))}
-          {feedActivities.length === 0 && (
+                onLike={handleFeedReviewLike}
+                onSave={async (_activityId, saved) => {
+                  const eventId = activity.eventId;
+                  if (!eventId) return;
+                  try {
+                    await apiToggleLike(eventId);
+                    setLikedEventIds(prev => {
+                      const next = new Set(prev);
+                      if (saved) next.add(eventId); else next.delete(eventId);
+                      return next;
+                    });
+                  } catch (err) {
+                    console.error('Feed bookmark error:', err);
+                  }
+                }}
+                onPostComment={handleFeedReviewComment}
+                onDelete={handleFeedDelete}
+              />
+            ))
+          )}
+          {!isFeedLoading && feedActivities.length === 0 && (
             <Text style={styles.emptyFeedText}>No review activity yet. Follow friends or leave a review on an event.</Text>
           )}
         </View>
@@ -551,8 +625,8 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
         initialQuery={searchQuery}
-        onNavigateToExplore={(category: string) =>
-          onNavigate('explore', undefined, { category })
+        onNavigateToExplore={(term: string) =>
+          onNavigate('explore', undefined, { searchQuery: term })
         }
         location={location}
         onLocationChange={setLocation}
@@ -868,6 +942,33 @@ const styles = StyleSheet.create({
   carouselItem: {
     width: 200,
   },
+  carouselSkeletonCard: {
+    width: 200,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#ffffff',
+    padding: 10,
+  },
+  skeletonBlock: {
+    backgroundColor: '#e5e7eb',
+    borderRadius: 6,
+  },
+  carouselSkeletonImage: {
+    width: '100%',
+    height: 96,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  carouselSkeletonTitle: {
+    height: 14,
+    width: '75%',
+    marginBottom: 8,
+  },
+  carouselSkeletonMeta: {
+    height: 12,
+    width: '48%',
+  },
   // Feed
   feedContainer: {
     paddingHorizontal: 18,
@@ -877,6 +978,62 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 16,
     color: '#111827',
+  },
+  feedSkeletonCard: {
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
+    padding: 12,
+    marginBottom: 12,
+  },
+  feedSkeletonHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  feedSkeletonAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 10,
+  },
+  feedSkeletonHeaderLine: {
+    height: 14,
+    width: '62%',
+    borderRadius: 7,
+  },
+  feedSkeletonActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  feedSkeletonLeftActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  feedSkeletonIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+  },
+  feedSkeletonDelete: {
+    width: 14,
+    height: 18,
+    borderRadius: 4,
+  },
+  feedSkeletonFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  feedSkeletonMetaLine: {
+    height: 10,
+    width: 118,
+  },
+  feedSkeletonDate: {
+    height: 10,
+    width: 42,
   },
   emptyFeedText: {
     color: '#6b7280',

@@ -93,10 +93,27 @@ export const apiGetEmailAuthStatus = (email: string) =>
   );
 
 // ── Events ──
-export const apiGetEvents = (params?: { category?: string; search?: string }) => {
+export const apiGetEvents = (params?: {
+  category?: string;
+  search?: string;
+  limit?: number;
+  createdBy?: string;
+  ids?: string[];
+  cursor?: string;
+  startDate?: string;
+  endDate?: string;
+  withCursor?: boolean;
+}) => {
   const qs = new URLSearchParams();
   if (params?.category) qs.set('category', params.category);
   if (params?.search) qs.set('search', params.search);
+  if (params?.createdBy) qs.set('createdBy', params.createdBy);
+  if (params?.ids && params.ids.length > 0) qs.set('ids', params.ids.join(','));
+  if (params?.cursor) qs.set('cursor', params.cursor);
+  if (params?.startDate) qs.set('startDate', params.startDate);
+  if (params?.endDate) qs.set('endDate', params.endDate);
+  if (params?.withCursor) qs.set('withCursor', '1');
+  qs.set('limit', String(params?.limit ?? 50));
   const query = qs.toString();
   return apiFetch(`/api/events${query ? `?${query}` : ''}`);
 };
