@@ -24,8 +24,64 @@ const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: numbe
   return R * c;
 };
 
+/** Bucket key for events sharing the same ~spot on the map (avoids native marker z-fighting). */
+const COORD_BUCKET_DECIMALS = 5;
+/** ~6 m at the equator — enough separation for circular markers without misleading the user. */
+const COINCIDENT_MARKER_STEP_DEG = 0.000055;
+
+function buildEventMarkerDisplayCoords(
+  eventsList: any[],
+  getCoords: (e: any) => { lat: number; lng: number } | null,
+): Record<string, { lat: number; lng: number }> {
+  const rows: { id: string; base: { lat: number; lng: number } }[] = [];
+  for (const event of eventsList) {
+    const base = getCoords(event);
+    if (!base) continue;
+    rows.push({ id: event.id, base });
+  }
+  const buckets = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const bk = `${row.base.lat.toFixed(COORD_BUCKET_DECIMALS)},${row.base.lng.toFixed(COORD_BUCKET_DECIMALS)}`;
+    const g = buckets.get(bk) ?? [];
+    g.push(row);
+    buckets.set(bk, g);
+  }
+  const out: Record<string, { lat: number; lng: number }> = {};
+  for (const group of buckets.values()) {
+    if (group.length === 1) {
+      out[group[0].id] = group[0].base;
+      continue;
+    }
+    const { base } = group[0];
+    const n = group.length;
+    group.forEach((row, idx) => {
+      const angle = (2 * Math.PI * idx) / n;
+      const r = COINCIDENT_MARKER_STEP_DEG * Math.sqrt(idx + 1);
+      out[row.id] = {
+        lat: base.lat + r * Math.cos(angle),
+        lng: base.lng + r * Math.sin(angle),
+      };
+    });
+  }
+  return out;
+}
+
 const IN_RANGE_DISTANCE_MILES = 50;
 const MIDPOINT_MAX_DISTANCE_MILES = 10;
+const EVENT_FETCH_LIMIT = 60;
+const EVENT_PAGE_SIZE = 30;
+const DEFAULT_EVENT_WINDOW_DAYS = 30;
+const EVENT_CACHE_TTL_MS = 2 * 60 * 1000;
+const MAX_GEOCODE_PER_PASS = 8;
+
+const eventQueryCache = new Map<string, { ts: number; events: any[] }>();
+
+function toIsoDateOnly(value: Date): string {
+  const y = value.getFullYear();
+  const m = String(value.getMonth() + 1).padStart(2, '0');
+  const d = String(value.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const categories = [
@@ -48,15 +104,19 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || '');
   const [showLegend, setShowLegend] = useState(false);
   const [events, setEvents] = useState<any[]>([]);
+  const [isEventsLoading, setIsEventsLoading] = useState(true);
   const [friends, setFriends] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [isLocationResolved, setIsLocationResolved] = useState(false);
   const [cityCoordsCache, setCityCoordsCache] = useState<Record<string, { lat: number; lng: number }>>({});
   const [selectedEventPreview, setSelectedEventPreview] = useState<any | null>(null);
   const [selectedFriendPreview, setSelectedFriendPreview] = useState<any | null>(null);
   const [previewAnchor, setPreviewAnchor] = useState<{ x: number; y: number } | null>(null);
   const [mapSize, setMapSize] = useState<{ width: number; height: number } | null>(null);
   const [visibleMeetInMiddleCount, setVisibleMeetInMiddleCount] = useState(MEET_IN_MIDDLE_PAGE_SIZE);
+  const skeletonPulse = useRef(new Animated.Value(0.45)).current;
+  const contentFade = useRef(new Animated.Value(1)).current;
   const insets = useSafeAreaInsets();
 
   // Filter state (pending = in modal, applied = active)
@@ -77,6 +137,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
   const [appliedSortOrder, setAppliedSortOrder] = useState<'soonest' | 'latest'>('soonest');
 
   const isFiltered = appliedCategories.length > 0 || appliedQuickDate !== null || appliedStartDate !== null || appliedEndDate !== null;
+  const isMeetInMiddleLoading = isEventsLoading || loading || !isLocationResolved;
 
   const openFilter = () => {
     setPendingCategories(appliedCategories);
@@ -151,32 +212,144 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
     setPreviewAnchor(null);
   };
 
+  useEffect(() => {
+    if (!isEventsLoading) return;
+    skeletonPulse.setValue(0.45);
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(skeletonPulse, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(skeletonPulse, {
+          toValue: 0.45,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+      ]),
+      { iterations: -1 },
+    );
+    animation.start();
+    return () => {
+      animation.stop();
+      skeletonPulse.setValue(0.45);
+    };
+  }, [isEventsLoading, skeletonPulse]);
+
+  useEffect(() => {
+    if (isEventsLoading) {
+      contentFade.setValue(0);
+      return;
+    }
+    Animated.timing(contentFade, {
+      toValue: 1,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+  }, [isEventsLoading, contentFade]);
+
   // Fetch raw events from Firestore (normalize latitude/longitude -> lat/lng, categories -> category)
   // Search is applied client-side in the filteredEvents useMemo — no need to refetch per keystroke.
   useEffect(() => {
-    if (!auth.currentUser) return;
+    if (!auth.currentUser) {
+      setIsEventsLoading(false);
+      return;
+    }
+    let cancelled = false;
     const fetchEvents = async () => {
+      setIsEventsLoading(true);
+      const primaryCategory = appliedCategories[0];
+      const startDate = appliedStartDate ? new Date(appliedStartDate) : new Date();
+      if (!appliedStartDate) startDate.setHours(0, 0, 0, 0);
+      const endDate = appliedEndDate
+        ? new Date(appliedEndDate)
+        : new Date(startDate.getTime() + DEFAULT_EVENT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+      if (!appliedEndDate) endDate.setHours(23, 59, 59, 999);
+      const startDateStr = toIsoDateOnly(startDate);
+      const endDateStr = toIsoDateOnly(endDate);
+      const cacheKey = `${primaryCategory || '__all__'}|${startDateStr}|${endDateStr}`;
+      const cached = eventQueryCache.get(cacheKey);
+      const now = Date.now();
+      if (cached && now - cached.ts <= EVENT_CACHE_TTL_MS) {
+        if (!cancelled) setEvents(cached.events);
+        if (!cancelled) setIsEventsLoading(false);
+        return;
+      }
       try {
-        const primaryCategory = appliedCategories[0];
-        const eventsList = await apiGetEvents({
-          limit: 80,
+        const firstPage = await apiGetEvents({
+          limit: EVENT_PAGE_SIZE,
           category: primaryCategory,
+          startDate: startDateStr,
+          endDate: endDateStr,
+          withCursor: true,
         });
-        console.log('ExplorePage: Fetched events count:', eventsList.length);
-        const normalized = eventsList.map((e: any) => ({
+        const firstEvents = Array.isArray(firstPage?.events) ? firstPage.events : [];
+        let combinedEvents = [...firstEvents];
+        let nextCursor = firstPage?.nextCursor;
+
+        // Pull one extra page in the same request cycle so map/list stay populated
+        // while still getting a fast first page response.
+        if (nextCursor && combinedEvents.length < EVENT_FETCH_LIMIT) {
+          const secondPage = await apiGetEvents({
+            limit: EVENT_PAGE_SIZE,
+            category: primaryCategory,
+            startDate: startDateStr,
+            endDate: endDateStr,
+            withCursor: true,
+            cursor: nextCursor,
+          });
+          const secondEvents = Array.isArray(secondPage?.events) ? secondPage.events : [];
+          combinedEvents = combinedEvents.concat(secondEvents);
+        }
+
+        // Safety fallback: when using the default 30-day window only (no user-picked
+        // date range), broaden to upcoming events if the window is empty.
+        if (!appliedStartDate && !appliedEndDate && combinedEvents.length === 0) {
+          const fallbackPage = await apiGetEvents({
+            limit: EVENT_PAGE_SIZE,
+            category: primaryCategory,
+            startDate: startDateStr,
+            withCursor: true,
+          });
+          const fallbackEvents = Array.isArray(fallbackPage?.events) ? fallbackPage.events : [];
+          combinedEvents = fallbackEvents;
+          nextCursor = fallbackPage?.nextCursor;
+          if (nextCursor && combinedEvents.length < EVENT_FETCH_LIMIT) {
+            const fallbackSecondPage = await apiGetEvents({
+              limit: EVENT_PAGE_SIZE,
+              category: primaryCategory,
+              startDate: startDateStr,
+              withCursor: true,
+              cursor: nextCursor,
+            });
+            const fallbackSecondEvents = Array.isArray(fallbackSecondPage?.events) ? fallbackSecondPage.events : [];
+            combinedEvents = combinedEvents.concat(fallbackSecondEvents);
+          }
+        }
+
+        const normalized = combinedEvents.slice(0, EVENT_FETCH_LIMIT).map((e: any) => ({
           ...e,
           lat: e.lat ?? e.latitude,
           lng: e.lng ?? e.longitude,
           category: e.category ?? (Array.isArray(e.categories) ? e.categories[0] : e.category),
         }));
-        setEvents(normalized as any[]);
+        const normalizedEvents = normalized as any[];
+        console.log('ExplorePage: Fetched events count:', normalizedEvents.length, 'window:', startDateStr, '->', endDateStr);
+        eventQueryCache.set(cacheKey, { ts: now, events: normalizedEvents });
+        if (!cancelled) setEvents(normalizedEvents);
       } catch (error: any) {
         console.error('ExplorePage: Error fetching events:', error?.code ?? error?.message ?? error);
+      } finally {
+        if (!cancelled) setIsEventsLoading(false);
       }
     };
 
     fetchEvents();
-  }, [auth.currentUser, appliedCategories]);
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.currentUser?.uid, appliedCategories, appliedStartDate, appliedEndDate]);
 
   const getCityKey = (event: any): string | null => {
     const rawCity = (event?.city ?? event?.location ?? '').toString().trim();
@@ -197,15 +370,18 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
 
   // If an event has no coordinates, try to geocode its city as a fallback.
   useEffect(() => {
-    const toGeocode = new Set<string>();
+    const toGeocode: string[] = [];
     for (const e of events) {
       if (Number.isFinite(e?.lat) && Number.isFinite(e?.lng)) continue;
       const key = getCityKey(e);
-      if (key && !cityCoordsCache[key]) toGeocode.add(key);
+      if (!key || cityCoordsCache[key] || geocodingCityKeysRef.current.has(key)) continue;
+      if (!toGeocode.includes(key)) toGeocode.push(key);
+      if (toGeocode.length >= MAX_GEOCODE_PER_PASS) break;
     }
-    if (toGeocode.size === 0) return;
+    if (toGeocode.length === 0) return;
 
     let cancelled = false;
+    toGeocode.forEach((key) => geocodingCityKeysRef.current.add(key));
     (async () => {
       for (const key of toGeocode) {
         try {
@@ -218,12 +394,15 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
         } catch (err) {
           // Swallow geocoding errors; events will just remain un-mappable.
           console.log('ExplorePage: geocodeAsync failed for', key, err);
+        } finally {
+          geocodingCityKeysRef.current.delete(key);
         }
       }
     })();
 
     return () => {
       cancelled = true;
+      toGeocode.forEach((key) => geocodingCityKeysRef.current.delete(key));
     };
   }, [events, cityCoordsCache]);
 
@@ -255,16 +434,23 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
   // Get user's current location
   useEffect(() => {
     (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        console.log('Location permission denied');
-        return;
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          console.log('Location permission denied');
+          setIsLocationResolved(true);
+          return;
+        }
+        const location = await Location.getCurrentPositionAsync({});
+        setUserLocation({
+          lat: location.coords.latitude,
+          lng: location.coords.longitude
+        });
+      } catch (err) {
+        console.log('ExplorePage: failed to resolve location', err);
+      } finally {
+        setIsLocationResolved(true);
       }
-      const location = await Location.getCurrentPositionAsync({});
-      setUserLocation({
-        lat: location.coords.latitude,
-        lng: location.coords.longitude
-      });
     })();
   }, []);
 
@@ -304,6 +490,8 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
   const currentHeight = useRef(DEFAULT_HEIGHT);
   const startHeight = useRef(DEFAULT_HEIGHT);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const geocodingCityKeysRef = useRef<Set<string>>(new Set());
+  const lastFitSignatureRef = useRef<string>('');
 
   const panResponder = useRef(
     PanResponder.create({
@@ -483,14 +671,24 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
       .slice(0, MAX_VISIBLE_MARKERS);
   }, [filteredEvents, cityCoordsCache]);
 
+  const eventMarkerDisplayCoords = useMemo(
+    () => buildEventMarkerDisplayCoords(visibleMarkerEvents, getEventCoords),
+    [visibleMarkerEvents, cityCoordsCache],
+  );
+
   // Pan/zoom the map to fit the current filtered events so users always see
   // their results, even if their location is far from where the events are.
   useEffect(() => {
     if (!mapRef.current) return;
-    const coordsList = filteredEvents
+    const coordsList = visibleMarkerEvents
       .map((e: any) => getEventCoords(e))
       .filter((c): c is { lat: number; lng: number } => !!c);
     if (coordsList.length === 0) return;
+    const signature = coordsList
+      .map((c) => `${c.lat.toFixed(4)},${c.lng.toFixed(4)}`)
+      .join('|');
+    if (signature === lastFitSignatureRef.current) return;
+    lastFitSignatureRef.current = signature;
     const timer = setTimeout(() => {
       mapRef.current?.fitToCoordinates(
         coordsList.map((c) => ({ latitude: c.lat, longitude: c.lng })),
@@ -501,7 +699,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
       );
     }, 400);
     return () => clearTimeout(timer);
-  }, [filteredEvents]);
+  }, [visibleMarkerEvents, cityCoordsCache]);
 
   return (
     <View style={styles.container}>
@@ -526,11 +724,15 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
       showsMyLocationButton={false}
       onPress={clearPreviews}
       onRegionChangeComplete={() => {
-        const coords = selectedEventPreview ? getEventCoords(selectedEventPreview) : null;
+        const eventTrue = selectedEventPreview ? getEventCoords(selectedEventPreview) : null;
+        const eventDisplay =
+          selectedEventPreview && eventMarkerDisplayCoords[selectedEventPreview.id]
+            ? eventMarkerDisplayCoords[selectedEventPreview.id]
+            : eventTrue;
         const friendCoords = selectedFriendPreview && Number.isFinite(selectedFriendPreview?.lat) && Number.isFinite(selectedFriendPreview?.lng)
           ? { lat: selectedFriendPreview.lat, lng: selectedFriendPreview.lng }
           : null;
-        const active = coords ?? friendCoords;
+        const active = eventDisplay ?? friendCoords;
         if (active) updatePreviewAnchor(active);
       }}
     >
@@ -539,6 +741,8 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
         .map((event: any) => {
           const coords = getEventCoords(event);
           if (!coords) return null;
+          const display =
+            eventMarkerDisplayCoords[event.id] ?? { lat: coords.lat, lng: coords.lng };
           const isMeetInMiddleEvent =
             !!meetInMiddlePoint &&
             meetInMiddleRadiusMiles > 0 &&
@@ -548,6 +752,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
               coords.lat,
               coords.lng
             ) <= meetInMiddleRadiusMiles;
+          const isSelectedEvent = selectedEventPreview?.id === event.id;
           const eventImageUri =
             event?.imageUrl ??
             event?.image ??
@@ -556,13 +761,15 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
           return (
         <Marker
           key={event.id}
-          coordinate={{ latitude: coords.lat, longitude: coords.lng }}
-          zIndex={isMeetInMiddleEvent ? 3 : 1}
+          coordinate={{ latitude: display.lat, longitude: display.lng }}
+          anchor={{ x: 0.5, y: 0.5 }}
+          tracksViewChanges={false}
+          zIndex={isSelectedEvent ? 100 : isMeetInMiddleEvent ? 3 : 1}
           onPress={(e) => {
             (e as any)?.stopPropagation?.();
             setSelectedFriendPreview(null);
             setSelectedEventPreview(event);
-            updatePreviewAnchor(coords);
+            updatePreviewAnchor(display);
           }}
         >
           <View
@@ -593,6 +800,8 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
         <Marker
           key={friend.id}
           coordinate={{ latitude: friend.lat, longitude: friend.lng }}
+          anchor={{ x: 0.5, y: 0.5 }}
+          tracksViewChanges={false}
           onPress={(e) => {
             (e as any)?.stopPropagation?.();
             setSelectedEventPreview(null);
@@ -623,6 +832,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
           <Marker
             coordinate={{ latitude: meetInMiddlePoint.lat, longitude: meetInMiddlePoint.lng }}
             anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={false}
             onPress={(e) => {
               (e as any)?.stopPropagation?.();
               clearPreviews();
@@ -822,45 +1032,64 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
                 ? `Events inside a ${meetInMiddleRadiusMiles.toFixed(1)} mile midpoint radius (${Math.max(meetInMiddleParticipantCount - 1, 0)} friends) · distance shown from you`
                 : 'Add friend locations to calculate a midpoint radius'}
             </Text>
-            {meetInMiddleEvents.slice(0, visibleMeetInMiddleCount).map((event: any, index: number) => (
-              <TouchableOpacity
-                key={event.id}
-                style={styles.suggestedEvent}
-                onPress={() => onNavigate('event', event.id)}
-              >
-                <View style={styles.suggestedEventContent}>
-                  <View style={styles.suggestedEventMain}>
-                    <View style={styles.rankBadge}>
-                      <Text style={styles.rankText}>#{index + 1}</Text>
+            {isMeetInMiddleLoading ? (
+              Array.from({ length: 3 }).map((_, idx) => (
+                <Animated.View key={`mid-skeleton-${idx}`} style={[styles.suggestedEvent, { opacity: skeletonPulse }]}>
+                  <View style={styles.suggestedEventContent}>
+                    <View style={styles.suggestedEventMain}>
+                      <View style={[styles.skeletonBlock, styles.skeletonRank]} />
+                      <View style={[styles.skeletonBlock, styles.skeletonSuggestedTitle]} />
                     </View>
-                    <Text style={styles.suggestedEventName}>{event.name}</Text>
+                    <View style={styles.suggestedEventSide}>
+                      <View style={[styles.skeletonBlock, styles.skeletonSuggestedRating]} />
+                      <View style={[styles.skeletonBlock, styles.skeletonSuggestedDistance]} />
+                    </View>
                   </View>
-                  <View style={styles.suggestedEventSide}>
-                    <Text style={styles.suggestedEventRatingText}>
-                      {event.midpointRating != null ? event.midpointRating.toFixed(1) : 'N/A'}
-                    </Text>
-                    <Text style={styles.suggestedEventDistanceInline}>
-                      {event.userDistanceMiles != null
-                        ? `${event.userDistanceMiles.toFixed(1)} mi from you`
-                        : `${event.midpointDistanceMiles.toFixed(1)} mi from midpoint`}
-                    </Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            ))}
-            {visibleMeetInMiddleCount < meetInMiddleEvents.length && (
-              <TouchableOpacity
-                style={styles.showMoreButton}
-                onPress={() =>
-                  setVisibleMeetInMiddleCount((prev) =>
-                    Math.min(prev + MEET_IN_MIDDLE_PAGE_SIZE, meetInMiddleEvents.length)
-                  )
-                }
-              >
-                <Text style={styles.showMoreText}>Show more</Text>
-              </TouchableOpacity>
+                </Animated.View>
+              ))
+            ) : (
+              <Animated.View style={{ opacity: contentFade }}>
+                {meetInMiddleEvents.slice(0, visibleMeetInMiddleCount).map((event: any, index: number) => (
+                  <TouchableOpacity
+                    key={event.id}
+                    style={styles.suggestedEvent}
+                    onPress={() => onNavigate('event', event.id)}
+                  >
+                    <View style={styles.suggestedEventContent}>
+                      <View style={styles.suggestedEventMain}>
+                        <View style={styles.rankBadge}>
+                          <Text style={styles.rankText}>#{index + 1}</Text>
+                        </View>
+                        <Text style={styles.suggestedEventName}>{event.name}</Text>
+                      </View>
+                      <View style={styles.suggestedEventSide}>
+                        <Text style={styles.suggestedEventRatingText}>
+                          {event.midpointRating != null ? event.midpointRating.toFixed(1) : 'N/A'}
+                        </Text>
+                        <Text style={styles.suggestedEventDistanceInline}>
+                          {event.userDistanceMiles != null
+                            ? `${event.userDistanceMiles.toFixed(1)} mi from you`
+                            : `${event.midpointDistanceMiles.toFixed(1)} mi from midpoint`}
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+                {visibleMeetInMiddleCount < meetInMiddleEvents.length && (
+                  <TouchableOpacity
+                    style={styles.showMoreButton}
+                    onPress={() =>
+                      setVisibleMeetInMiddleCount((prev) =>
+                        Math.min(prev + MEET_IN_MIDDLE_PAGE_SIZE, meetInMiddleEvents.length)
+                      )
+                    }
+                  >
+                    <Text style={styles.showMoreText}>Show more</Text>
+                  </TouchableOpacity>
+                )}
+              </Animated.View>
             )}
-            {meetInMiddleEvents.length === 0 && (
+            {!isMeetInMiddleLoading && meetInMiddleEvents.length === 0 && (
               <Text style={styles.emptyText}>No suggested events</Text>
             )}
           </View>
@@ -869,34 +1098,53 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
           <Text style={styles.sectionTitle}>
             {appliedCategories.length === 0 ? 'Nearby Events' : `${appliedCategories.join(', ')} Events`}
           </Text>
-          {filteredEvents.length > 0 ? (
-            filteredEvents.map((event: any) => (
-              <TouchableOpacity
-                key={event.id}
-                style={styles.eventRow}
-                onPress={() => onNavigate('event', event.id)}
-              >
+          {isEventsLoading ? (
+            Array.from({ length: 5 }).map((_, idx) => (
+              <Animated.View key={`event-skeleton-${idx}`} style={[styles.eventRow, { opacity: skeletonPulse }]}>
                 <View style={styles.eventRowLeft}>
-                  <Text style={styles.eventRowName}>{event.name}</Text>
+                  <View style={[styles.skeletonBlock, styles.skeletonTitle]} />
                   <View style={styles.eventRowMeta}>
-                    <Text style={styles.eventRowCity}>{event.city}, {event.state}</Text>
+                    <View style={[styles.skeletonBlock, styles.skeletonMeta]} />
                     <Text style={styles.eventRowDot}>•</Text>
-                    <Text style={styles.eventRowPrice}>
-                      {'$'.repeat(event.pricePoint)}
-                    </Text>
+                    <View style={[styles.skeletonBlock, styles.skeletonPrice]} />
                   </View>
                 </View>
                 <View style={styles.eventRowRight}>
-                  <Text style={styles.eventRowDate}>{event.startDate}</Text>
-                  <View style={styles.ratingRow}>
-                    <Star size={14} color="#facc15" fill="#facc15" />
-                    <Text style={styles.ratingText}>
-                      {event.rating} ({event.reviewCount})
-                    </Text>
-                  </View>
+                  <View style={[styles.skeletonBlock, styles.skeletonDate]} />
+                  <View style={[styles.skeletonBlock, styles.skeletonRating]} />
                 </View>
-              </TouchableOpacity>
+              </Animated.View>
             ))
+          ) : filteredEvents.length > 0 ? (
+            <Animated.View style={{ opacity: contentFade }}>
+              {filteredEvents.map((event: any) => (
+                <TouchableOpacity
+                  key={event.id}
+                  style={styles.eventRow}
+                  onPress={() => onNavigate('event', event.id)}
+                >
+                  <View style={styles.eventRowLeft}>
+                    <Text style={styles.eventRowName}>{event.name}</Text>
+                    <View style={styles.eventRowMeta}>
+                      <Text style={styles.eventRowCity}>{event.city}, {event.state}</Text>
+                      <Text style={styles.eventRowDot}>•</Text>
+                      <Text style={styles.eventRowPrice}>
+                        {'$'.repeat(event.pricePoint)}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.eventRowRight}>
+                    <Text style={styles.eventRowDate}>{event.startDate}</Text>
+                    <View style={styles.ratingRow}>
+                      <Star size={14} color="#facc15" fill="#facc15" />
+                      <Text style={styles.ratingText}>
+                        {event.rating} ({event.reviewCount})
+                      </Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </Animated.View>
           ) : (
             <Text style={styles.emptyText}>No events found in this category</Text>
           )}
@@ -1464,6 +1712,40 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6b7280',
   },
+  skeletonBlock: {
+    backgroundColor: '#e5e7eb',
+    borderRadius: 6,
+  },
+  skeletonTitle: {
+    height: 16,
+    width: '72%',
+    marginBottom: 6,
+  },
+  skeletonMeta: {
+    height: 12,
+    width: 90,
+  },
+  skeletonPrice: {
+    height: 12,
+    width: 30,
+  },
+  skeletonRank: {
+    width: 28,
+    height: 18,
+    borderRadius: 9999,
+  },
+  skeletonSuggestedTitle: {
+    height: 14,
+    width: '68%',
+  },
+  skeletonSuggestedRating: {
+    height: 11,
+    width: 28,
+  },
+  skeletonSuggestedDistance: {
+    height: 11,
+    width: 86,
+  },
   eventRowRight: {
     alignItems: 'flex-end',
     marginLeft: 16,
@@ -1481,6 +1763,15 @@ const styles = StyleSheet.create({
   ratingText: {
     fontSize: 12,
     color: '#4b5563',
+  },
+  skeletonDate: {
+    height: 11,
+    width: 64,
+    marginBottom: 8,
+  },
+  skeletonRating: {
+    height: 12,
+    width: 54,
   },
   emptyText: {
     fontSize: 14,
