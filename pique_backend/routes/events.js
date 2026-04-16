@@ -5,6 +5,35 @@ const { FieldValue } = require("firebase-admin/firestore");
 
 const router = express.Router();
 
+function parseEventDateValue(value) {
+  if (!value) return null;
+  if (typeof value?.toDate === "function") {
+    const d = value.toDate();
+    return Number.isFinite(d?.getTime?.()) ? d : null;
+  }
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value : null;
+  }
+  const d = new Date(value);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+function toIsoStartOfDay(input) {
+  if (!input) return null;
+  const d = new Date(String(input));
+  if (!Number.isFinite(d.getTime())) return null;
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
+function toIsoEndOfDay(input) {
+  if (!input) return null;
+  const d = new Date(String(input));
+  if (!Number.isFinite(d.getTime())) return null;
+  d.setHours(23, 59, 59, 999);
+  return d.toISOString();
+}
+
 function buildInterestedActivityId(userId, eventId) {
   return `interested_${userId}_${eventId}`;
 }
@@ -105,8 +134,11 @@ router.post("/", authenticate, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/", authenticate, async (req, res) => {
   try {
-    const { category, search, createdBy, ids } = req.query;
+    const { category, search, createdBy, ids, cursor } = req.query;
     const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 500);
+    const withCursor = String(req.query.withCursor || "") === "1";
+    const startDateIso = toIsoStartOfDay(req.query.startDate);
+    const endDateIso = toIsoEndOfDay(req.query.endDate);
 
     // Targeted fetch by doc IDs (used by ProfilePage for liked/booked events).
     // Firestore's documentId() `in` clause caps at 30, so batch.
@@ -152,7 +184,15 @@ router.get("/", authenticate, async (req, res) => {
       query = query.orderBy("createdAt", "desc");
     }
 
-    const fetchLimit = search ? limit * 4 : limit;
+    if (cursor) {
+      const cursorSnap = await db.collection("events").doc(String(cursor)).get();
+      if (cursorSnap.exists) {
+        query = query.startAfter(cursorSnap);
+      }
+    }
+
+    const needsPostFilter = !!search || !!startDateIso || !!endDateIso;
+    const fetchLimit = needsPostFilter ? Math.min(limit * 6, 500) : limit;
     const snapshot = await query.limit(fetchLimit).get();
     let events = snapshot.docs.map((doc) => ({
       id: doc.id,
@@ -161,6 +201,19 @@ router.get("/", authenticate, async (req, res) => {
       rating: 0,
       reviewCount: 0,
     }));
+
+    if (startDateIso || endDateIso) {
+      const startMs = startDateIso ? new Date(startDateIso).getTime() : null;
+      const endMs = endDateIso ? new Date(endDateIso).getTime() : null;
+      events = events.filter((e) => {
+        const parsed = parseEventDateValue(e.date || e.startDate);
+        if (!parsed) return false;
+        const ms = parsed.getTime();
+        if (startMs != null && ms < startMs) return false;
+        if (endMs != null && ms > endMs) return false;
+        return true;
+      });
+    }
 
     if (search) {
       const q = String(search).toLowerCase();
@@ -172,7 +225,17 @@ router.get("/", authenticate, async (req, res) => {
       });
     }
 
-    return res.json(events.slice(0, limit));
+    const sliced = events.slice(0, limit);
+    if (!withCursor) {
+      return res.json(sliced);
+    }
+    const rawDocs = snapshot.docs;
+    const hasMoreRaw = rawDocs.length === fetchLimit;
+    const nextCursor = hasMoreRaw && rawDocs.length > 0 ? rawDocs[rawDocs.length - 1].id : null;
+    return res.json({
+      events: sliced,
+      nextCursor,
+    });
   } catch (err) {
     console.error("GET /api/events error:", err);
     return res.status(500).json({ error: "Failed to fetch events" });
