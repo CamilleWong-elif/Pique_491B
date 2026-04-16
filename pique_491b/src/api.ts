@@ -123,6 +123,9 @@ export const apiGetUser = (id: string) =>
 export const apiUpdateMe = (data: Record<string, any>) =>
   apiFetch('/api/users/me', { method: 'PUT', body: JSON.stringify(data) });
 
+export const apiDeleteAccount = () =>
+  apiFetch('/api/users/me', { method: 'DELETE' });
+
 export const apiCheckUsername = (username: string) =>
   apiFetch<{ available: boolean }>(`/api/users/check-username/${encodeURIComponent(username)}`);
 

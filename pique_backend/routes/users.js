@@ -356,4 +356,24 @@ router.put("/me", authenticate, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// DELETE /api/users/me — Permanently delete the current user's account
+// ---------------------------------------------------------------------------
+router.delete("/me", authenticate, async (req, res) => {
+  const uid = req.user.uid;
+  try {
+    // Delete Firestore profile document
+    await db.collection("users").doc(uid).delete();
+
+    // Delete Firebase Auth account
+    const { admin } = require("../src/config/firebase");
+    await admin.auth().deleteUser(uid);
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE /api/users/me error:", err);
+    return res.status(500).json({ error: "Failed to delete account" });
+  }
+});
+
 module.exports = router;
