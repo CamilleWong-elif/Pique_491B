@@ -351,14 +351,14 @@ export function LoginScreen({ onLogin, onNavigateToSignUp }: LoginScreenProps) {
       <View style={styles.form}>
 
         {/* Email Input */}
-        <Text style={styles.label}>Email or Username</Text>
+        <Text style={styles.label}>Email</Text>
         <View style={styles.inputWrapper}>
           <Mail size={20} color="#9ca3af" style={styles.inputIcon} />
           <TextInput
             style={styles.input}
             value={email}
             onChangeText={setEmail}
-            placeholder="Enter your email or username"
+            placeholder="Enter your email"
             placeholderTextColor="#9ca3af"
             autoCapitalize="none"
             keyboardType="email-address"
