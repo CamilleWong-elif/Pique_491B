@@ -1,4 +1,5 @@
 const express = require("express");
+const nodemailer = require("nodemailer");
 const { db } = require("../src/config/firebase");
 const { authenticate } = require("../middleware/auth");
 const { FieldValue } = require("firebase-admin/firestore");
@@ -357,22 +358,155 @@ router.put("/me", authenticate, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// DELETE /api/users/me — Permanently delete the current user's account
+// Shared SMTP helper
+// ---------------------------------------------------------------------------
+function createMailTransporter() {
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: String(process.env.SMTP_SECURE || "false").toLowerCase() === "true",
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+}
+
+async function sendMail({ to, subject, text, html }) {
+  try {
+    const transporter = createMailTransporter();
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to,
+      subject,
+      text,
+      html,
+    });
+  } catch (err) {
+    console.error("sendMail error:", err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /api/users/me — Soft-delete: anonymize profile, schedule permanent
+//                        deletion in 30 days. Auth account is kept alive so
+//                        the user can log back in to recover within that window.
 // ---------------------------------------------------------------------------
 router.delete("/me", authenticate, async (req, res) => {
   const uid = req.user.uid;
   try {
-    // Delete Firestore profile document
-    await db.collection("users").doc(uid).delete();
-
-    // Delete Firebase Auth account
     const { admin } = require("../src/config/firebase");
-    await admin.auth().deleteUser(uid);
+
+    const authUser = await admin.auth().getUser(uid);
+    const userEmail = authUser.email;
+
+    // Snapshot the current profile so we can restore it on recovery
+    const userSnap = await db.collection("users").doc(uid).get();
+    const originalData = userSnap.exists ? userSnap.data() : {};
+
+    // Stash original data in a separate collection
+    const scheduledDeletionAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    await db.collection("pendingDeletion").doc(uid).set({
+      originalData,
+      email: userEmail,
+      scheduledDeletionAt,
+    });
+
+    // Anonymize the public-facing profile immediately
+    await db.collection("users").doc(uid).set({
+      displayName: "Deleted User",
+      username: null,
+      bio: null,
+      avatarDataUrl: null,
+      photoURL: null,
+      status: "pending_deletion",
+      scheduledDeletionAt,
+    });
+
+    // Send a heads-up email (best-effort)
+    if (userEmail) {
+      const deletionDate = new Date(scheduledDeletionAt).toDateString();
+      await sendMail({
+        to: userEmail,
+        subject: "Your Pique account is scheduled for deletion",
+        text: [
+          "Hi,",
+          "",
+          `Your Pique account has been scheduled for permanent deletion on ${deletionDate}.`,
+          "Your public posts will appear as 'Deleted User' in the meantime.",
+          "",
+          "If you change your mind, log back into Pique within 30 days to recover your account.",
+          "",
+          "If you did not request this, contact us immediately at piquecsulb@gmail.com.",
+          "",
+          "— The Pique Team",
+        ].join("\n"),
+        html: `
+          <p>Hi,</p>
+          <p>Your Pique account has been scheduled for <strong>permanent deletion on ${deletionDate}</strong>.</p>
+          <p>Your public posts will appear as "Deleted User" in the meantime.</p>
+          <p>If you change your mind, <strong>log back into Pique within 30 days</strong> to recover your account.</p>
+          <p>If you did not request this, contact us immediately at <a href="mailto:piquecsulb@gmail.com">piquecsulb@gmail.com</a>.</p>
+          <p>— The Pique Team</p>
+        `,
+      });
+    }
+
+    return res.json({ success: true, scheduledDeletionAt });
+  } catch (err) {
+    console.error("DELETE /api/users/me error:", err);
+    return res.status(500).json({ error: "Failed to schedule account deletion" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/users/me/recover — Cancel a pending deletion and restore profile
+// ---------------------------------------------------------------------------
+router.post("/me/recover", authenticate, async (req, res) => {
+  const uid = req.user.uid;
+  try {
+    const pendingSnap = await db.collection("pendingDeletion").doc(uid).get();
+    if (!pendingSnap.exists) {
+      return res.status(400).json({ error: "No pending deletion found for this account" });
+    }
+
+    const { originalData, email, scheduledDeletionAt } = pendingSnap.data();
+
+    // Only allow recovery before the scheduled deletion date
+    if (new Date() >= new Date(scheduledDeletionAt)) {
+      return res.status(410).json({ error: "Recovery window has expired" });
+    }
+
+    // Restore original profile
+    await db.collection("users").doc(uid).set(originalData);
+
+    // Clean up the pending deletion record
+    await db.collection("pendingDeletion").doc(uid).delete();
+
+    // Send recovery confirmation (best-effort)
+    if (email) {
+      await sendMail({
+        to: email,
+        subject: "Your Pique account has been recovered",
+        text: [
+          "Hi,",
+          "",
+          "Your Pique account has been successfully recovered. Everything is back to normal.",
+          "",
+          "If you did not request this, contact us immediately at piquecsulb@gmail.com.",
+          "",
+          "— The Pique Team",
+        ].join("\n"),
+        html: `
+          <p>Hi,</p>
+          <p>Your Pique account has been <strong>successfully recovered</strong>. Everything is back to normal.</p>
+          <p>If you did not request this, contact us immediately at <a href="mailto:piquecsulb@gmail.com">piquecsulb@gmail.com</a>.</p>
+          <p>— The Pique Team</p>
+        `,
+      });
+    }
 
     return res.json({ success: true });
   } catch (err) {
-    console.error("DELETE /api/users/me error:", err);
-    return res.status(500).json({ error: "Failed to delete account" });
+    console.error("POST /api/users/me/recover error:", err);
+    return res.status(500).json({ error: "Failed to recover account" });
   }
 });
 
