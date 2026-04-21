@@ -92,6 +92,9 @@ export const apiGetEmailAuthStatus = (email: string) =>
     `/api/auth/email-auth-status?email=${encodeURIComponent(email.trim().toLowerCase())}`
   );
 
+export const apiSubmitSurvey = (data: { gender: string; location: string; languages: string[]; preferredCategories: string[] }) =>
+  apiFetch('/api/users/me/survey', { method: 'POST', body: JSON.stringify(data) });
+
 // ── Events ──
 export const apiGetEvents = (params?: {
   category?: string;
@@ -120,6 +123,10 @@ export const apiGetEvents = (params?: {
 
 export const apiGetEvent = (id: string) =>
   apiFetch(`/api/events/${id}`);
+
+// ── Recommendations ──
+export const apiGetRecommendations = (limit?: number) =>
+  apiFetch(`/api/recommendations?limit=${limit ?? 20}`);
 
 export const apiCreateEvent = (data: Record<string, any>) =>
   apiFetch('/api/events', { method: 'POST', body: JSON.stringify(data) });

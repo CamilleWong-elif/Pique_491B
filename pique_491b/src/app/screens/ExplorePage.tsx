@@ -84,11 +84,8 @@ function toIsoDateOnly(value: Date): string {
 }
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const categories = [
-  'All', 'Arts', 'Business', 'Comedy', 'Education', 'Family',
-  'Fashion', 'Film', 'Fitness', 'Gaming', 'Health & Wellness', 'Music',
-  'Nightlife', 'Outdoors', 'Sports', 'Tech', 'Theater', 'Travel',
-];
+import { ALL_CATEGORIES } from '@/constants/categories';
+const categories = ['All', ...ALL_CATEGORIES];
 
 
 interface ExplorePageProps {

@@ -356,4 +356,46 @@ router.put("/me", authenticate, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/users/me/survey — Submit the Getting Started preference survey
+// ---------------------------------------------------------------------------
+const VALID_CATEGORIES = [
+  "Arts", "Business", "Comedy", "Education", "Family", "Fashion",
+  "Film", "Fitness", "Food & Drink", "Gaming", "Health & Wellness", "Music",
+  "Nightlife", "Outdoors", "Sports", "Tech", "Theater", "Travel",
+];
+
+router.post("/me/survey", authenticate, async (req, res) => {
+  try {
+    const { gender, location, languages, preferredCategories } = req.body;
+
+    if (!gender || !["female", "male", "other"].includes(gender.toLowerCase())) {
+      return res.status(400).json({ error: "Gender must be one of: female, male, other" });
+    }
+    if (!Array.isArray(preferredCategories) || preferredCategories.length === 0) {
+      return res.status(400).json({ error: "Select at least one category" });
+    }
+    const invalidCats = preferredCategories.filter((c) => !VALID_CATEGORIES.includes(c));
+    if (invalidCats.length > 0) {
+      return res.status(400).json({ error: `Invalid categories: ${invalidCats.join(", ")}` });
+    }
+
+    const surveyData = {
+      gender: gender.toLowerCase(),
+      surveyLocation: typeof location === "string" ? location.trim() : "",
+      languages: Array.isArray(languages) ? languages.map((l) => String(l).trim()).filter(Boolean) : [],
+      preferredCategories,
+      surveyCompleted: true,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await db.collection("users").doc(req.user.uid).set(surveyData, { merge: true });
+
+    return res.json({ id: req.user.uid, ...surveyData });
+  } catch (err) {
+    console.error("POST /api/users/me/survey error:", err);
+    return res.status(500).json({ error: "Failed to save survey" });
+  }
+});
+
 module.exports = router;

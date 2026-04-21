@@ -317,6 +317,19 @@ router.get("/:id", authenticate, async (req, res) => {
     const stats = computeReviewStatsForEventReviews(
       Array.from(reviewMap.values())
     );
+
+    // Track this click in the user's recentEventClicks (top 7, fire-and-forget)
+    if (req.user?.uid) {
+      const userRef = db.collection("users").doc(req.user.uid);
+      userRef.get().then((uDoc) => {
+        if (!uDoc.exists) return;
+        const clicks = Array.isArray(uDoc.data().recentEventClicks) ? uDoc.data().recentEventClicks : [];
+        const filtered = clicks.filter((id) => id !== doc.id);
+        const updated = [doc.id, ...filtered].slice(0, 7);
+        userRef.set({ recentEventClicks: updated }, { merge: true }).catch(() => {});
+      }).catch(() => {});
+    }
+
     return res.json({ id: doc.id, ...doc.data(), ...stats });
   } catch (err) {
     console.error("GET /api/events/:id error:", err);
