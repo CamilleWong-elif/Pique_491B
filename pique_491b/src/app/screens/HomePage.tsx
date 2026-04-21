@@ -4,7 +4,7 @@ import { NotificationsModal } from '@/components/NotificationsModal';
 import { SocialActivity, SocialActivityCard } from '@/components/SocialActivityCard';
 import { SearchOverlay } from '@/components/SearchOverlay';
 import { useAuth } from '@/context/AuthContext';
-import { apiDeleteReview, apiDismissFeedActivity, apiGetEvents, apiGetFriendReviews, apiGetReviewComments, apiPostActivityComment, apiPostReviewComment, apiToggleActivityLike, apiToggleLike, apiToggleReviewLike } from '@/api';
+import { apiDeleteReview, apiDismissFeedActivity, apiGetEvents, apiGetFriendReviews, apiGetRecommendations, apiGetReviewComments, apiPostActivityComment, apiPostReviewComment, apiToggleActivityLike, apiToggleLike, apiToggleReviewLike } from '@/api';
 import { resolveAvatarUrl } from '@/utils/avatar';
 import { Bell, Menu, MessageCircle, Plus, Search, SlidersHorizontal, X } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
@@ -13,11 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 
-const ALL_CATEGORIES = [
-  'Arts', 'Business', 'Comedy', 'Education', 'Family', 'Fashion',
-  'Film', 'Fitness', 'Food & Drink', 'Gaming', 'Health & Wellness', 'Music',
-  'Nightlife', 'Outdoors', 'Sports', 'Tech', 'Theater', 'Travel',
-];
+import { ALL_CATEGORIES } from '@/constants/categories';
 const mockNotifications: any[] = [];
 
 const logo = require('@/assets/images/temp_logo.png');
@@ -44,6 +40,8 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   const [likedEventIds, setLikedEventIds] = useState<Set<string>>(new Set());
   const [feedActivities, setFeedActivities] = useState<SocialActivity[]>([]);
   const [isFeedLoading, setIsFeedLoading] = useState(true);
+  const [recommendedEvents, setRecommendedEvents] = useState<any[]>([]);
+  const [isRecsLoading, setIsRecsLoading] = useState(true);
   const skeletonPulse = useRef(new Animated.Value(0.45)).current;
   const insets = useSafeAreaInsets();
 
@@ -161,6 +159,21 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
       }
     };
     fetchEvents();
+  }, []);
+
+  useEffect(() => {
+    const fetchRecs = async () => {
+      setIsRecsLoading(true);
+      try {
+        const recs = await apiGetRecommendations(10);
+        setRecommendedEvents(recs || []);
+      } catch (err: any) {
+        console.error('HomePage: Error fetching recommendations:', err?.message ?? err);
+      } finally {
+        setIsRecsLoading(false);
+      }
+    };
+    fetchRecs();
   }, []);
 
   useEffect(() => {
@@ -492,6 +505,50 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Recommended For You */}
+        {!isRecsLoading && recommendedEvents.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>Recommended For You</Text>
+            <FlatList
+              horizontal
+              data={recommendedEvents}
+              keyExtractor={(event: any) => `rec-${event.id}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.carouselContent}
+              style={styles.carousel}
+              initialNumToRender={4}
+              maxToRenderPerBatch={4}
+              windowSize={5}
+              removeClippedSubviews
+              renderItem={({ item: event }: { item: any }) => {
+                const dateVal = event.date ?? event.startDate;
+                const startDateStr = formattoMMDD(dateVal);
+                return (
+                  <View style={styles.carouselItem}>
+                    <EventCard
+                      event={{
+                        id: event.id,
+                        name: event.name ?? '',
+                        imageUrl: event.imageUrl ?? event.image,
+                        startDate: startDateStr ?? event.startDate,
+                        endDate: event.endDate,
+                        category: event.category ?? (Array.isArray(event.categories) ? event.categories[0] : undefined),
+                        city: event.city ?? event.location,
+                        pricePoint: event.pricePoint,
+                        rating: event.rating,
+                        distance: event.distance,
+                      }}
+                      onPress={() => onNavigate('event', event.id)}
+                      isBookmarked={likedEventIds.has(event.id)}
+                      onBookmarkPress={handleBookmarkPress}
+                    />
+                  </View>
+                );
+              }}
+            />
+          </>
+        )}
 
         {/* Horizontal Carousel */}
         {!isEventsLoading && isFiltered && allFilteredEvents.length === 0 && (
@@ -972,6 +1029,14 @@ const styles = StyleSheet.create({
   // Feed
   feedContainer: {
     paddingHorizontal: 18,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    paddingHorizontal: 18,
+    marginTop: 8,
+    marginBottom: 6,
   },
   feedTitle: {
     fontSize: 14,

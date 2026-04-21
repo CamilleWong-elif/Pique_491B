@@ -25,6 +25,7 @@ import { EventCard } from '@/components/EventCard';
 import { NavigationBar } from '@/components/NavigationBar';
 import { EventDetailScreen } from '../screens/EventDetailPage';
 import { LeaveReviewScreen } from '../screens/LeaveReviewPage';
+import { SurveyScreen } from '../screens/SurveyScreen';
 
 const NAV_STATE_KEY = '@pique_nav_state';
 
@@ -32,7 +33,7 @@ const NAV_STATE_KEY = '@pique_nav_state';
 let introSplashCompleted = false;
 
 export default function App() {
-  const { user, loading: authLoading, signOut } = useAuth();
+  const { user, profile, loading: authLoading, signOut } = useAuth();
   const [isLoading, setIsLoading] = useState(() => !introSplashCompleted);
   const [showSignUp, setShowSignUp] = useState(false);
   const [navHydrated, setNavHydrated] = useState(false);
@@ -178,6 +179,7 @@ export default function App() {
   const showLoginStack = gateReady && !authLoading && !isAuthenticated && !showSignUp;
   const showSignUpStack = gateReady && !authLoading && !isAuthenticated && showSignUp;
   const showApp = gateReady && !authLoading && isAuthenticated;
+  const needsSurvey = showApp && profile?.surveyCompleted !== true;
 
   return (
     <SafeAreaProvider>
@@ -205,71 +207,75 @@ export default function App() {
           />
         )}
 
-        {showApp && currentPage === 'home' && (
+        {needsSurvey && (
+          <SurveyScreen onComplete={() => {}} />
+        )}
+
+        {showApp && !needsSurvey && currentPage === 'home' && (
           <HomePage
             onNavigate={handleNavigate}
             onSignOut={handleSignOut}
             onOpenMessages={() => handleNavigate('messages')}
           />
         )}
-        {showApp && currentPage === 'explore' && (
+        {showApp && !needsSurvey && currentPage === 'explore' && (
           <ExplorePage
             onNavigate={handleNavigate}
             initialCategory={exploreInitialCategory}
             initialSearchQuery={exploreInitialSearchQuery}
           />
         )}
-        {showApp && currentPage === 'leaderboard' && (
+        {showApp && !needsSurvey && currentPage === 'leaderboard' && (
           <CommunityPage onNavigate={handleNavigate} />
         )}
-        {showApp && currentPage === 'profile' && (
+        {showApp && !needsSurvey && currentPage === 'profile' && (
           <ProfilePage onNavigate={handleNavigate} />
         )}
-        {showApp && currentPage === 'create' && (
+        {showApp && !needsSurvey && currentPage === 'create' && (
           <CreateEventPage onNavigate={handleNavigate} />
         )}
-        {showApp && currentPage === 'messages' && (
+        {showApp && !needsSurvey && currentPage === 'messages' && (
           <MessagingScreen
             onBack={() => { setMessageRecipientId(undefined); handleNavigate('home'); }}
             openWithUserId={messageRecipientId}
           />
         )}
-        {showApp && currentPage === 'settings' && (
+        {showApp && !needsSurvey && currentPage === 'settings' && (
           <SettingsScreen onNavigate={handleNavigate} />
         )}
-        {showApp && currentPage === 'changePassword' && (
+        {showApp && !needsSurvey && currentPage === 'changePassword' && (
           <ChangePasswordScreen onNavigate={handleNavigate} />
         )}
-        {showApp && currentPage === 'deleteAccount' && (
+        {showApp && !needsSurvey && currentPage === 'deleteAccount' && (
           <DeleteAccountScreen onNavigate={handleNavigate} />
         )}
-        {showApp && currentPage === 'contact' && (
+        {showApp && !needsSurvey && currentPage === 'contact' && (
           <ContactUsPage onNavigate={handleNavigate} />
         )}
-        {showApp && currentPage === 'terms' && (
+        {showApp && !needsSurvey && currentPage === 'terms' && (
           <TermsConditionsScreen onNavigate={handleNavigate} />
         )}
-        {showApp && currentPage === 'privacy' && (
+        {showApp && !needsSurvey && currentPage === 'privacy' && (
           <PrivacyPolicyScreen onNavigate={handleNavigate} />
         )}
-        {showApp && currentPage === 'event' && !!selectedEventId && (
+        {showApp && !needsSurvey && currentPage === 'event' && !!selectedEventId && (
           <EventDetailScreen
             eventId={selectedEventId}
             onBack={() => handleNavigate('home')}
             onNavigate={handleNavigate}
           />
         )}
-        {showApp && currentPage === 'review' && !!selectedEventId && (
+        {showApp && !needsSurvey && currentPage === 'review' && !!selectedEventId && (
           <LeaveReviewScreen
             event={{ id: selectedEventId, imageUrl: '', businessName: '', location: '' }}
             onBack={() => handleNavigate('event', selectedEventId)}
             onReviewPosted={() => handleNavigate('event', selectedEventId)}
           />
         )}
-        {showApp && currentPage === 'event-posted' && (
+        {showApp && !needsSurvey && currentPage === 'event-posted' && (
           <EventPostedPage eventName={postedEventName} onNavigate={handleNavigate} />
         )}
-        {showApp && currentPage === 'friendProfile' && selectedFriendName.length > 0 && (
+        {showApp && !needsSurvey && currentPage === 'friendProfile' && selectedFriendName.length > 0 && (
           <FriendProfileScreen
             friendName={selectedFriendName}
             onNavigate={handleNavigate}

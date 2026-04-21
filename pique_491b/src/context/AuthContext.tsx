@@ -15,6 +15,9 @@ export interface UserProfile {
   likedEvents?: string[];
   likedReviews?: string[];
   commentedReviews?: string[];
+  recentEventClicks?: string[];
+  preferredCategories?: string[];
+  surveyCompleted?: boolean;
   updatedAt?: unknown;
 }
 

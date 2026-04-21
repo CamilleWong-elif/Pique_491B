@@ -7,6 +7,7 @@ export type Event = {
   startDate?: string;
   endDate?: string;
   category?: string;
+  categories?: string[];
   city?: string;
   pricePoint?: number;
   rating?: number;
