@@ -126,10 +126,6 @@ export default function App() {
     if (page === 'explore') {
       setExploreInitialCategory(options?.category);
       setExploreInitialSearchQuery(options?.searchQuery);
-    } else {
-      // Clear the seed once the user navigates away so it doesn't reapply later.
-      setExploreInitialCategory(undefined);
-      setExploreInitialSearchQuery(undefined);
     }
     setCurrentPage(page);
   };
@@ -211,25 +207,45 @@ export default function App() {
           <SurveyScreen onComplete={() => {}} />
         )}
 
-        {showApp && !needsSurvey && currentPage === 'home' && (
-          <HomePage
-            onNavigate={handleNavigate}
-            onSignOut={handleSignOut}
-            onOpenMessages={() => handleNavigate('messages')}
-          />
+        {showApp && !needsSurvey && (
+          <View
+            style={[StyleSheet.absoluteFill, { zIndex: currentPage === 'home' ? 1 : 0, opacity: currentPage === 'home' ? 1 : 0 }]}
+            pointerEvents={currentPage === 'home' ? 'auto' : 'none'}
+          >
+            <HomePage
+              onNavigate={handleNavigate}
+              onSignOut={handleSignOut}
+              onOpenMessages={() => handleNavigate('messages')}
+            />
+          </View>
         )}
-        {showApp && !needsSurvey && currentPage === 'explore' && (
-          <ExplorePage
-            onNavigate={handleNavigate}
-            initialCategory={exploreInitialCategory}
-            initialSearchQuery={exploreInitialSearchQuery}
-          />
+        {showApp && !needsSurvey && (
+          <View
+            style={[StyleSheet.absoluteFill, { zIndex: currentPage === 'explore' ? 1 : 0, opacity: currentPage === 'explore' ? 1 : 0 }]}
+            pointerEvents={currentPage === 'explore' ? 'auto' : 'none'}
+          >
+            <ExplorePage
+              onNavigate={handleNavigate}
+              initialCategory={exploreInitialCategory}
+              initialSearchQuery={exploreInitialSearchQuery}
+            />
+          </View>
         )}
-        {showApp && !needsSurvey && currentPage === 'leaderboard' && (
-          <CommunityPage onNavigate={handleNavigate} />
+        {showApp && !needsSurvey && (
+          <View
+            style={[StyleSheet.absoluteFill, { zIndex: currentPage === 'leaderboard' ? 1 : 0, opacity: currentPage === 'leaderboard' ? 1 : 0 }]}
+            pointerEvents={currentPage === 'leaderboard' ? 'auto' : 'none'}
+          >
+            <CommunityPage onNavigate={handleNavigate} />
+          </View>
         )}
-        {showApp && !needsSurvey && currentPage === 'profile' && (
-          <ProfilePage onNavigate={handleNavigate} />
+        {showApp && !needsSurvey && (
+          <View
+            style={[StyleSheet.absoluteFill, { zIndex: currentPage === 'profile' ? 1 : 0, opacity: currentPage === 'profile' ? 1 : 0 }]}
+            pointerEvents={currentPage === 'profile' ? 'auto' : 'none'}
+          >
+            <ProfilePage onNavigate={handleNavigate} />
+          </View>
         )}
         {showApp && !needsSurvey && currentPage === 'create' && (
           <CreateEventPage onNavigate={handleNavigate} />

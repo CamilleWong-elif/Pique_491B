@@ -12,6 +12,9 @@ node_modules/
 # Environment & secrets
 .env
 .env.*
+*.json.bak
+*-adminsdk-*.json
+pique-senior-project-*.json
 
 # Python
 venv/

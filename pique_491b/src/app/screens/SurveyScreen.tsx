@@ -1,7 +1,8 @@
 import { ALL_CATEGORIES } from '@/constants/categories';
+import { US_LOCATIONS, LANGUAGES } from '@/constants/surveyOptions';
 import { apiSubmitSurvey } from '@/api';
 import { useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Keyboard, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface SurveyScreenProps {
@@ -15,10 +16,22 @@ export function SurveyScreen({ onComplete }: SurveyScreenProps) {
   const [step, setStep] = useState(0);
   const [gender, setGender] = useState<string>('');
   const [location, setLocation] = useState('');
-  const [languages, setLanguages] = useState('');
+  const [locationQuery, setLocationQuery] = useState('');
+  const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
+  const [langQuery, setLangQuery] = useState('');
+  const [showLangSuggestions, setShowLangSuggestions] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  const filteredLocations = locationQuery.length > 0
+    ? US_LOCATIONS.filter((l) => l.toLowerCase().includes(locationQuery.toLowerCase())).slice(0, 6)
+    : [];
+
+  const filteredLanguages = langQuery.length > 0
+    ? LANGUAGES.filter((l) => l.toLowerCase().includes(langQuery.toLowerCase()) && !selectedLanguages.includes(l)).slice(0, 6)
+    : [];
 
   const toggleCategory = (cat: string) => {
     setSelectedCategories((prev) =>
@@ -39,8 +52,8 @@ export function SurveyScreen({ onComplete }: SurveyScreenProps) {
     try {
       await apiSubmitSurvey({
         gender,
-        location: location.trim(),
-        languages: languages.split(',').map((l) => l.trim()).filter(Boolean),
+        location,
+        languages: selectedLanguages,
         preferredCategories: selectedCategories,
       });
       onComplete();
@@ -68,7 +81,7 @@ export function SurveyScreen({ onComplete }: SurveyScreenProps) {
         ))}
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {step === 0 && (
           <>
             <Text style={styles.title}>How do you identify?</Text>
@@ -92,19 +105,84 @@ export function SurveyScreen({ onComplete }: SurveyScreenProps) {
             <Text style={styles.title}>Where do you live?</Text>
             <TextInput
               style={styles.input}
-              value={location}
-              onChangeText={setLocation}
-              placeholder="City, State"
+              value={location || locationQuery}
+              onChangeText={(text) => {
+                setLocation('');
+                setLocationQuery(text);
+                setShowLocationSuggestions(true);
+              }}
+              onFocus={() => {
+                if (location) {
+                  setLocationQuery(location);
+                  setLocation('');
+                }
+                setShowLocationSuggestions(true);
+              }}
+              placeholder="Start typing a city..."
               placeholderTextColor="#9ca3af"
             />
+            {showLocationSuggestions && filteredLocations.length > 0 && (
+              <View style={styles.suggestionsBox}>
+                {filteredLocations.map((loc) => (
+                  <TouchableOpacity
+                    key={loc}
+                    style={styles.suggestionItem}
+                    onPress={() => {
+                      setLocation(loc);
+                      setLocationQuery('');
+                      setShowLocationSuggestions(false);
+                      Keyboard.dismiss();
+                    }}
+                  >
+                    <Text style={styles.suggestionText}>{loc}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
             <Text style={[styles.title, { marginTop: 28 }]}>What languages do you speak?</Text>
+            {selectedLanguages.length > 0 && (
+              <View style={styles.selectedChipsRow}>
+                {selectedLanguages.map((lang) => (
+                  <TouchableOpacity
+                    key={lang}
+                    style={styles.selectedChip}
+                    onPress={() => setSelectedLanguages((prev) => prev.filter((l) => l !== lang))}
+                  >
+                    <Text style={styles.selectedChipText}>{lang}  x</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
             <TextInput
               style={styles.input}
-              value={languages}
-              onChangeText={setLanguages}
-              placeholder="English, Spanish, ..."
+              value={langQuery}
+              onChangeText={(text) => {
+                setLangQuery(text);
+                setShowLangSuggestions(true);
+              }}
+              onFocus={() => setShowLangSuggestions(true)}
+              placeholder="Start typing a language..."
               placeholderTextColor="#9ca3af"
             />
+            {showLangSuggestions && filteredLanguages.length > 0 && (
+              <View style={styles.suggestionsBox}>
+                {filteredLanguages.map((lang) => (
+                  <TouchableOpacity
+                    key={lang}
+                    style={styles.suggestionItem}
+                    onPress={() => {
+                      setSelectedLanguages((prev) => [...prev, lang]);
+                      setLangQuery('');
+                      setShowLangSuggestions(false);
+                      Keyboard.dismiss();
+                    }}
+                  >
+                    <Text style={styles.suggestionText}>{lang}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </>
         )}
 
@@ -230,6 +308,43 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#111827',
     backgroundColor: '#f9fafb',
+  },
+  suggestionsBox: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    marginTop: 4,
+    overflow: 'hidden',
+  },
+  suggestionItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  suggestionText: {
+    fontSize: 15,
+    color: '#111827',
+  },
+  selectedChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  selectedChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: '#eef2ff',
+    borderWidth: 1,
+    borderColor: '#6366f1',
+  },
+  selectedChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6366f1',
   },
   categoryGrid: {
     flexDirection: 'row',

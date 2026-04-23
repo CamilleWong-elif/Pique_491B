@@ -760,7 +760,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
           key={event.id}
           coordinate={{ latitude: display.lat, longitude: display.lng }}
           anchor={{ x: 0.5, y: 0.5 }}
-          tracksViewChanges={false}
+
           zIndex={isSelectedEvent ? 100 : isMeetInMiddleEvent ? 3 : 1}
           onPress={(e) => {
             (e as any)?.stopPropagation?.();
@@ -798,7 +798,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
           key={friend.id}
           coordinate={{ latitude: friend.lat, longitude: friend.lng }}
           anchor={{ x: 0.5, y: 0.5 }}
-          tracksViewChanges={false}
+
           onPress={(e) => {
             (e as any)?.stopPropagation?.();
             setSelectedEventPreview(null);
@@ -829,7 +829,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
           <Marker
             coordinate={{ latitude: meetInMiddlePoint.lat, longitude: meetInMiddlePoint.lng }}
             anchor={{ x: 0.5, y: 0.5 }}
-            tracksViewChanges={false}
+  
             onPress={(e) => {
               (e as any)?.stopPropagation?.();
               clearPreviews();
