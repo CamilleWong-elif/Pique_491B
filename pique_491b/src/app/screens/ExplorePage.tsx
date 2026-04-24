@@ -73,6 +73,9 @@ const EVENT_PAGE_SIZE = 30;
 const DEFAULT_EVENT_WINDOW_DAYS = 30;
 const EVENT_CACHE_TTL_MS = 2 * 60 * 1000;
 const MAX_GEOCODE_PER_PASS = 8;
+const RECENTER_FALLBACK_LAT_DELTA = 0.05;
+const RECENTER_TOP_UI_APPROX_HEIGHT = 124; // top padding + search card + spacing
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
 
 const eventQueryCache = new Map<string, { ts: number; events: any[] }>();
 
@@ -99,6 +102,7 @@ interface ExplorePageProps {
 export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, initialCategory, initialSearchQuery, }: ExplorePageProps) {
   const MEET_IN_MIDDLE_PAGE_SIZE = 3;
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery || '');
+  const [committedSearchQuery, setCommittedSearchQuery] = useState(initialSearchQuery || '');
   const [showLegend, setShowLegend] = useState(false);
   const [events, setEvents] = useState<any[]>([]);
   const [isEventsLoading, setIsEventsLoading] = useState(true);
@@ -135,6 +139,16 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
 
   const isFiltered = appliedCategories.length > 0 || appliedQuickDate !== null || appliedStartDate !== null || appliedEndDate !== null;
   const isMeetInMiddleLoading = isEventsLoading || loading || !isLocationResolved;
+
+  useEffect(() => {
+    const nextQuery = initialSearchQuery || '';
+    setSearchQuery(nextQuery);
+    setCommittedSearchQuery(nextQuery);
+  }, [initialSearchQuery]);
+
+  const handleSubmitSearch = () => {
+    setCommittedSearchQuery(searchQuery.trim());
+  };
 
   const openFilter = () => {
     setPendingCategories(appliedCategories);
@@ -201,6 +215,82 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
     const dd2 = end.getDate();
     const endStr = `${mm2}/${dd2}`;
     return `${startStr} ~ ${endStr}`;
+  };
+
+  const formatListViewDate = (event: any): string => {
+    const toDateInfo = (value: any): { date: Date; hasTime: boolean } | undefined => {
+      if (!value) return undefined;
+      if (typeof value?.toDate === 'function') {
+        const d = value.toDate();
+        if (Number.isNaN(d.getTime())) return undefined;
+        return {
+          date: d,
+          hasTime: d.getHours() !== 0 || d.getMinutes() !== 0 || d.getSeconds() !== 0,
+        };
+      }
+      if (value instanceof Date) {
+        if (Number.isNaN(value.getTime())) return undefined;
+        return {
+          date: value,
+          hasTime: value.getHours() !== 0 || value.getMinutes() !== 0 || value.getSeconds() !== 0,
+        };
+      }
+      const raw = String(value).trim();
+      if (!raw) return undefined;
+
+      const isoDateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (isoDateOnly) {
+        const d = new Date(Number(isoDateOnly[1]), Number(isoDateOnly[2]) - 1, Number(isoDateOnly[3]));
+        return Number.isNaN(d.getTime()) ? undefined : { date: d, hasTime: false };
+      }
+
+      const parsed = new Date(raw);
+      if (!Number.isNaN(parsed.getTime())) {
+        const hasTime = /T\d{2}:\d{2}/.test(raw) || /\b\d{1,2}:\d{2}\s?(AM|PM)\b/i.test(raw);
+        return { date: parsed, hasTime };
+      }
+      return undefined;
+    };
+
+    const formatMonthDay = (d: Date): string => `${MONTH_LABELS[d.getMonth()] ?? ''} ${d.getDate()}`;
+    const formatTime = (d: Date): string => {
+      const hours24 = d.getHours();
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      const suffix = hours24 >= 12 ? 'PM' : 'AM';
+      const hours12 = hours24 % 12 || 12;
+      return `${hours12}:${minutes}${suffix}`;
+    };
+
+    const rawStart = event?.date ?? event?.startDate;
+    const rawEnd = event?.endDate;
+
+    let startToken: any = rawStart;
+    let endToken: any = rawEnd;
+    if (!endToken && typeof rawStart === 'string') {
+      const packedRange = rawStart.match(/^(.+?)\s(?:-|~|to)\s(.+)$/i);
+      if (packedRange) {
+        startToken = packedRange[1].trim();
+        endToken = packedRange[2].trim();
+      }
+    }
+
+    const startInfo = toDateInfo(startToken);
+    const endInfo = toDateInfo(endToken);
+
+    if (startInfo && endInfo) {
+      if (startInfo.hasTime || endInfo.hasTime) {
+        const startLabel = `${formatMonthDay(startInfo.date)} @ ${formatTime(startInfo.date)}`;
+        const endLabel = `${formatMonthDay(endInfo.date)} @ ${formatTime(endInfo.date)}`;
+        return `${startLabel} - ${endLabel}`;
+      }
+      return `${formatMonthDay(startInfo.date)} - ${formatMonthDay(endInfo.date)}`;
+    }
+    if (startInfo) {
+      return startInfo.hasTime
+        ? `${formatMonthDay(startInfo.date)} @ ${formatTime(startInfo.date)}`
+        : formatMonthDay(startInfo.date);
+    }
+    return String(rawStart ?? '');
   };
 
   const clearPreviews = () => {
@@ -453,6 +543,10 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
 
   // Map ref for programmatic control
   const mapRef = useRef<MapView>(null);
+  const lastRegionRef = useRef<{ latitudeDelta: number; longitudeDelta: number }>({
+    latitudeDelta: 0.15,
+    longitudeDelta: 0.15,
+  });
 
   const updatePreviewAnchor = async (coords: { lat: number; lng: number }) => {
     try {
@@ -470,11 +564,19 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
   // Recenter map to user's location
   const handleRecenterMap = () => {
     if (userLocation && mapRef.current) {
+      const latitudeDelta = lastRegionRef.current.latitudeDelta || RECENTER_FALLBACK_LAT_DELTA;
+      const longitudeDelta = lastRegionRef.current.longitudeDelta || RECENTER_FALLBACK_LAT_DELTA;
+      const topVisibleBoundary = RECENTER_TOP_UI_APPROX_HEIGHT;
+      const bottomVisibleBoundary = SCREEN_HEIGHT - currentHeight.current;
+      const visibleMidY = (topVisibleBoundary + bottomVisibleBoundary) / 2;
+      const centerYOffsetRatio = (visibleMidY - (SCREEN_HEIGHT / 2)) / SCREEN_HEIGHT;
+      const centeredLatitude = userLocation.lat + (latitudeDelta * centerYOffsetRatio);
+
       mapRef.current.animateToRegion({
-        latitude: userLocation.lat,
+        latitude: centeredLatitude,
         longitude: userLocation.lng,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
+        latitudeDelta,
+        longitudeDelta,
       }, 500);
     }
   };
@@ -533,7 +635,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
       return calculateDistance(userLocation.lat, userLocation.lng, coords.lat, coords.lng) <= IN_RANGE_DISTANCE_MILES;
     };
 
-    const normalizedQuery = searchQuery.trim().toLowerCase();
+    const normalizedQuery = committedSearchQuery.trim().toLowerCase();
 
     const eventsWithoutFood = events.filter((event: any) => event.category !== 'Food & Drink');
     const eventsByCategory = appliedCategories.length === 0
@@ -653,7 +755,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
       meetInMiddleEvents: midpointEvents,
       meetInMiddleParticipantCount: participantCoords.length,
     };
-  }, [events, friends, searchQuery, appliedCategories, userLocation, cityCoordsCache, appliedQuickDate, appliedStartDate, appliedEndDate, appliedSortOrder]);
+  }, [events, friends, committedSearchQuery, appliedCategories, userLocation, cityCoordsCache, appliedQuickDate, appliedStartDate, appliedEndDate, appliedSortOrder]);
 
   useEffect(() => {
     setVisibleMeetInMiddleCount(MEET_IN_MIDDLE_PAGE_SIZE);
@@ -720,7 +822,13 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
       showsUserLocation={true}
       showsMyLocationButton={false}
       onPress={clearPreviews}
-      onRegionChangeComplete={() => {
+      onRegionChangeComplete={(region) => {
+        if (region?.latitudeDelta && region?.longitudeDelta) {
+          lastRegionRef.current = {
+            latitudeDelta: region.latitudeDelta,
+            longitudeDelta: region.longitudeDelta,
+          };
+        }
         const eventTrue = selectedEventPreview ? getEventCoords(selectedEventPreview) : null;
         const eventDisplay =
           selectedEventPreview && eventMarkerDisplayCoords[selectedEventPreview.id]
@@ -848,8 +956,8 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
       const windowW = Dimensions.get('window').width;
       // Make the preview card a bit wider than it is tall,
       // and closer to the proportions in the design mock.
-      const CARD_W = Math.max(160, Math.floor(windowW * 0.42));
-      const CARD_H = Math.floor(CARD_W * 0.9);
+      const CARD_W = Math.max(140, Math.floor(windowW * 0.36));
+      const CARD_H = Math.floor(CARD_W * 1.08);
       const GAP = 10;
       const PAD = 8;
       const side =
@@ -885,6 +993,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
             event={eventForCard}
             onPress={() => onNavigate('event', selectedEventPreview.id)}
             hideBookmark
+            compact
           />
         </View>
       );
@@ -943,11 +1052,13 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
               style={styles.searchInput}
               value={searchQuery}
               onChangeText={setSearchQuery}
+              onSubmitEditing={handleSubmitSearch}
+              returnKeyType="search"
               placeholder="Search events, places..."
               placeholderTextColor="#9ca3af"
             />
             {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <TouchableOpacity onPress={() => { setSearchQuery(''); setCommittedSearchQuery(''); }}>
                 <X size={14} color="#9ca3af" />
               </TouchableOpacity>
             )}
@@ -1131,7 +1242,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
                     </View>
                   </View>
                   <View style={styles.eventRowRight}>
-                    <Text style={styles.eventRowDate}>{event.startDate}</Text>
+                    <Text style={styles.eventRowDate}>{formatListViewDate(event)}</Text>
                     <View style={styles.ratingRow}>
                       <Star size={14} color="#facc15" fill="#facc15" />
                       <Text style={styles.ratingText}>

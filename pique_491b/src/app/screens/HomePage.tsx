@@ -4,7 +4,7 @@ import { NotificationsModal } from '@/components/NotificationsModal';
 import { SocialActivity, SocialActivityCard } from '@/components/SocialActivityCard';
 import { SearchOverlay } from '@/components/SearchOverlay';
 import { useAuth } from '@/context/AuthContext';
-import { apiDeleteReview, apiDismissFeedActivity, apiGetEvents, apiGetFriendReviews, apiGetRecommendations, apiGetReviewComments, apiPostActivityComment, apiPostReviewComment, apiToggleActivityLike, apiToggleLike, apiToggleReviewLike } from '@/api';
+import { apiDeleteReview, apiDismissFeedActivity, apiGetFriendReviews, apiGetRecommendations, apiGetReviewComments, apiPostActivityComment, apiPostReviewComment, apiToggleActivityLike, apiToggleLike, apiToggleReviewLike } from '@/api';
 import { resolveAvatarUrl } from '@/utils/avatar';
 import { Bell, Menu, MessageCircle, Plus, Search, SlidersHorizontal, X } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
@@ -29,14 +29,13 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   const { user, profile } = useAuth();
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [submittedSearchQuery, setSubmittedSearchQuery] = useState('');
   const [location, setLocation] = useState('Los Angeles, CA');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [notifications, setNotifications] = useState(mockNotifications);
-  const [events, setEvents] = useState<any[]>([]);
-  const [isEventsLoading, setIsEventsLoading] = useState(true);
   const [likedEventIds, setLikedEventIds] = useState<Set<string>>(new Set());
   const [feedActivities, setFeedActivities] = useState<SocialActivity[]>([]);
   const [isFeedLoading, setIsFeedLoading] = useState(true);
@@ -62,7 +61,7 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   const [appliedSortOrder, setAppliedSortOrder] = useState<'soonest' | 'latest'>('soonest');
 
   const isFiltered = appliedCategories.length > 0 || appliedQuickDate !== null || appliedStartDate !== null || appliedEndDate !== null;
-  const isHomeLoading = isEventsLoading || isFeedLoading;
+  const isHomeLoading = isFeedLoading;
 
   useEffect(() => {
     if (!isHomeLoading) return;
@@ -139,27 +138,6 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
     const endStr = `${mm2}/${dd2}`;
     return `${startStr} ~ ${endStr}`;
   };
-
-  useEffect(() => {
-    const fetchEvents = async () => {
-      setIsEventsLoading(true);
-      try {
-        const eventsList = await apiGetEvents({ limit: 25 });
-        const normalized = eventsList.map((e: any) => ({
-          ...e,
-          lat: e.lat ?? e.latitude,
-          lng: e.lng ?? e.longitude,
-          category: e.category ?? (Array.isArray(e.categories) ? e.categories[0] : e.category),
-        }));
-        setEvents(normalized);
-      } catch (error: any) {
-        console.error('HomePage: Error fetching events:', error?.message ?? error);
-      } finally {
-        setIsEventsLoading(false);
-      }
-    };
-    fetchEvents();
-  }, []);
 
   useEffect(() => {
     const fetchRecs = async () => {
@@ -331,7 +309,7 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
     return result;
   };
 
-  const allFilteredEvents = applyFilters(events);
+  const filteredRecommendedEvents = applyFilters(recommendedEvents);
 
   const openFilter = () => {
     setPendingCategories(appliedCategories);
@@ -489,12 +467,19 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
               style={styles.searchInput}
               value={searchQuery}
               onChangeText={setSearchQuery}
+              onSubmitEditing={() => {
+                const committed = searchQuery.trim();
+                if (!committed) return;
+                setSubmittedSearchQuery(committed);
+                onNavigate('explore', undefined, { searchQuery: committed });
+              }}
+              returnKeyType="search"
               onFocus={() => setIsSearchOpen(true)}
               placeholder="Search events, places..."
               placeholderTextColor="#9ca3af"
             />
             {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')}>
+              <TouchableOpacity onPress={() => { setSearchQuery(''); setSubmittedSearchQuery(''); }}>
                 <X size={14} color="#9ca3af" />
               </TouchableOpacity>
             )}
@@ -507,12 +492,15 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
         </View>
 
         {/* Recommended For You */}
-        {!isRecsLoading && recommendedEvents.length > 0 && (
+        {!isRecsLoading && isFiltered && filteredRecommendedEvents.length === 0 && (
+          <Text style={styles.emptyFeedText}>No recommended events match the selected filters.</Text>
+        )}
+        {!isRecsLoading && filteredRecommendedEvents.length > 0 && (
           <>
             <Text style={styles.sectionTitle}>Recommended For You</Text>
             <FlatList
               horizontal
-              data={recommendedEvents}
+              data={filteredRecommendedEvents}
               keyExtractor={(event: any) => `rec-${event.id}`}
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.carouselContent}
@@ -548,60 +536,6 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
               }}
             />
           </>
-        )}
-
-        {/* Horizontal Carousel */}
-        {!isEventsLoading && isFiltered && allFilteredEvents.length === 0 && (
-          <Text style={styles.emptyFeedText}>No events match the selected filters.</Text>
-        )}
-        {isEventsLoading ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.carouselContent} style={styles.carousel}>
-            {Array.from({ length: 3 }).map((_, idx) => (
-              <Animated.View key={`home-carousel-skeleton-${idx}`} style={[styles.carouselSkeletonCard, { opacity: skeletonPulse }]}>
-                <View style={[styles.skeletonBlock, styles.carouselSkeletonImage]} />
-                <View style={[styles.skeletonBlock, styles.carouselSkeletonTitle]} />
-                <View style={[styles.skeletonBlock, styles.carouselSkeletonMeta]} />
-              </Animated.View>
-            ))}
-          </ScrollView>
-        ) : (
-          <FlatList
-            horizontal
-            data={allFilteredEvents}
-            keyExtractor={(event: any) => event.id}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.carouselContent}
-            style={styles.carousel}
-            initialNumToRender={4}
-            maxToRenderPerBatch={4}
-            windowSize={5}
-            removeClippedSubviews
-            renderItem={({ item: event }: { item: any }) => {
-              const dateVal = event.date ?? event.startDate;
-              const startDateStr = formattoMMDD(dateVal);
-              return (
-                <View style={styles.carouselItem}>
-                  <EventCard
-                    event={{
-                      id: event.id,
-                      name: event.name ?? '',
-                      imageUrl: event.imageUrl ?? event.image,
-                      startDate: startDateStr ?? event.startDate,
-                      endDate: event.endDate,
-                      category: event.category,
-                      city: event.city ?? event.location,
-                      pricePoint: event.pricePoint,
-                      rating: event.rating,
-                      distance: event.distance,
-                    }}
-                    onPress={() => onNavigate('event', event.id)}
-                    isBookmarked={likedEventIds.has(event.id)}
-                    onBookmarkPress={handleBookmarkPress}
-                  />
-                </View>
-              );
-            }}
-          />
         )}
 
         {/* Activity Feed */}
@@ -668,7 +602,7 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
         currentPage="home"
         onNavigate={(page) => {
           if (page === 'explore') {
-            onNavigate(page, undefined, { searchQuery });
+            onNavigate(page, undefined, { searchQuery: submittedSearchQuery });
           } else {
             onNavigate(page);
           }
@@ -682,9 +616,12 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
         initialQuery={searchQuery}
-        onNavigateToExplore={(term: string) =>
-          onNavigate('explore', undefined, { searchQuery: term })
-        }
+        onNavigateToExplore={(term: string) => {
+          const committed = term.trim();
+          setSearchQuery(committed);
+          setSubmittedSearchQuery(committed);
+          onNavigate('explore', undefined, { searchQuery: committed });
+        }}
         location={location}
         onLocationChange={setLocation}
       />
@@ -999,32 +936,9 @@ const styles = StyleSheet.create({
   carouselItem: {
     width: 200,
   },
-  carouselSkeletonCard: {
-    width: 200,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    backgroundColor: '#ffffff',
-    padding: 10,
-  },
   skeletonBlock: {
     backgroundColor: '#e5e7eb',
     borderRadius: 6,
-  },
-  carouselSkeletonImage: {
-    width: '100%',
-    height: 96,
-    borderRadius: 10,
-    marginBottom: 10,
-  },
-  carouselSkeletonTitle: {
-    height: 14,
-    width: '75%',
-    marginBottom: 8,
-  },
-  carouselSkeletonMeta: {
-    height: 12,
-    width: '48%',
   },
   // Feed
   feedContainer: {

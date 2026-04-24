@@ -26,9 +26,10 @@ type Props = {
   hideBookmark?: boolean;
   isBookmarked?: boolean;
   onBookmarkPress?: (eventId?: string) => void;
+  compact?: boolean;
 };
 
-export function EventCard({ event, onPress, hideBookmark = false, isBookmarked = false, onBookmarkPress }: Props) {
+export function EventCard({ event, onPress, hideBookmark = false, isBookmarked = false, onBookmarkPress, compact = false }: Props) {
   const [imageError, setImageError] = useState(false);
 
   const formatRating = (rating: unknown): string => {
@@ -42,22 +43,75 @@ export function EventCard({ event, onPress, hideBookmark = false, isBookmarked =
     return Array.from({ length: Math.max(0, pricePoint || 0) }, () => "$").join("");
   };
 
-  const formatDate = () => {
-    if (!event.startDate) return "";
-    if (event.endDate) {
-      return `${event.startDate} - ${event.endDate}`;
+  const formatMonthDay = (date: Date): string => `${date.getMonth() + 1}/${date.getDate()}`;
+
+  const normalizeDateToken = (value: unknown): string | null => {
+    if (value == null) return null;
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? null : formatMonthDay(value);
     }
-    return event.startDate;
+    if (typeof value === "object" && typeof (value as { toDate?: () => Date }).toDate === "function") {
+      const timestampDate = (value as { toDate: () => Date }).toDate();
+      return Number.isNaN(timestampDate.getTime()) ? null : formatMonthDay(timestampDate);
+    }
+    const raw = String(value).trim();
+    if (!raw) return null;
+
+    // Already in M/D or M/D/YYYY style.
+    const usDate = raw.match(/^(\d{1,2})\/(\d{1,2})(?:\/\d{2,4})?$/);
+    if (usDate) {
+      return `${Number(usDate[1])}/${Number(usDate[2])}`;
+    }
+
+    // YYYY-MM-DD or ISO strings should keep their calendar day (avoid timezone shifting).
+    const isoPrefix = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoPrefix) {
+      return `${Number(isoPrefix[2])}/${Number(isoPrefix[3])}`;
+    }
+
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) {
+      return formatMonthDay(parsed);
+    }
+    return null;
+  };
+
+  const formatDate = () => {
+    const rawStart = event.startDate;
+    const rawEnd = event.endDate;
+    if (!rawStart && !rawEnd) return "";
+
+    let startToken: unknown = rawStart;
+    let endToken: unknown = rawEnd;
+
+    // Handle scraped range packed into a single startDate string.
+    if (!endToken && typeof rawStart === "string") {
+      const packedRange = rawStart.match(/^(.+?)\s(?:-|~|to)\s(.+)$/i);
+      if (packedRange) {
+        startToken = packedRange[1].trim();
+        endToken = packedRange[2].trim();
+      }
+    }
+
+    const startLabel = normalizeDateToken(startToken);
+    const endLabel = normalizeDateToken(endToken);
+
+    if (startLabel && endLabel) {
+      return startLabel === endLabel ? startLabel : `${startLabel} - ${endLabel}`;
+    }
+    if (startLabel) return startLabel;
+    if (endLabel) return endLabel;
+    return String(rawStart ?? "");
   };
 
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+      style={({ pressed }) => [styles.card, compact && styles.cardCompact, pressed && styles.cardPressed]}
       accessibilityRole={"button" as AccessibilityRole}
       accessibilityLabel={`Open ${event.name} details`}
     >
-      <View style={styles.imageWrap}>
+      <View style={[styles.imageWrap, compact && styles.imageWrapCompact]}>
         {!imageError && event.imageUrl ? (
           <Image
             source={{ uri: event.imageUrl }}
@@ -72,27 +126,27 @@ export function EventCard({ event, onPress, hideBookmark = false, isBookmarked =
         )}
 
         {event.startDate ? (
-          <View style={styles.dateBadge}>
-            <Text style={styles.dateBadgeText}>{formatDate()}</Text>
+          <View style={[styles.dateBadge, compact && styles.dateBadgeCompact]}>
+            <Text style={[styles.dateBadgeText, compact && styles.dateBadgeTextCompact]}>{formatDate()}</Text>
           </View>
         ) : null}
       </View>
 
-      <View style={styles.meta}>
+      <View style={[styles.meta, compact && styles.metaCompact]}>
         <View style={styles.left}>
-          <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">
+          <Text style={[styles.title, compact && styles.titleCompact]} numberOfLines={1} ellipsizeMode="tail">
             {event.name}
           </Text>
 
-          <View style={styles.row}>
-            <Text style={styles.price}>{renderPricePoints(event.pricePoint)}</Text>
-            <Text style={styles.dot}>•</Text>
-            <Text style={styles.category} numberOfLines={1}>
+          <View style={[styles.row, compact && styles.rowCompact]}>
+            <Text style={[styles.price, compact && styles.priceCompact]}>{renderPricePoints(event.pricePoint)}</Text>
+            <Text style={[styles.dot, compact && styles.dotCompact]}>•</Text>
+            <Text style={[styles.category, compact && styles.categoryCompact]} numberOfLines={1}>
               {event.category}
             </Text>
           </View>
 
-          <Text style={styles.city} numberOfLines={1}>
+          <Text style={[styles.city, compact && styles.cityCompact]} numberOfLines={1}>
             {event.city}
           </Text>
         </View>
@@ -101,21 +155,21 @@ export function EventCard({ event, onPress, hideBookmark = false, isBookmarked =
           {!hideBookmark && (
             <TouchableOpacity
               onPress={() => onBookmarkPress?.(event.id)}
-              style={styles.bookmarkBtn}
+              style={[styles.bookmarkBtn, compact && styles.bookmarkBtnCompact]}
               accessibilityRole={"button"}
               accessibilityLabel={`Bookmark ${event.name}`}
             >
-              <Bookmark size={16} color={isBookmarked ? "#3b82f6" : "#4B5563"} fill={isBookmarked ? "#3b82f6" : "none"} />
+              <Bookmark size={compact ? 14 : 16} color={isBookmarked ? "#3b82f6" : "#4B5563"} fill={isBookmarked ? "#3b82f6" : "none"} />
             </TouchableOpacity>
           )}
 
-          <View style={styles.ratingRow}>
-            <Star size={12} color="#F59E0B" />
-            <Text style={styles.ratingText}>{formatRating(event.rating)}</Text>
+          <View style={[styles.ratingRow, compact && styles.ratingRowCompact]}>
+            <Star size={compact ? 10 : 12} color="#F59E0B" />
+            <Text style={[styles.ratingText, compact && styles.ratingTextCompact]}>{formatRating(event.rating)}</Text>
           </View>
 
-          <View style={styles.distanceWrap}>
-            <Text style={styles.distanceText}>{event.distance} mi</Text>
+          <View style={[styles.distanceWrap, compact && styles.distanceWrapCompact]}>
+            <Text style={[styles.distanceText, compact && styles.distanceTextCompact]}>{event.distance} mi</Text>
           </View>
         </View>
       </View>
@@ -142,6 +196,9 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  cardCompact: {
+    borderRadius: 7,
+  },
   cardPressed: {
     opacity: 0.9,
   },
@@ -151,6 +208,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#E5E7EB",
     width: "100%",
     position: "relative",
+  },
+  imageWrapCompact: {
+    height: 92,
   },
   image: {
     width: "100%",
@@ -178,10 +238,19 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 6,
   },
+  dateBadgeCompact: {
+    bottom: 6,
+    left: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
   dateBadgeText: {
     color: "#fff",
     fontSize: 10,
     fontWeight: "700",
+  },
+  dateBadgeTextCompact: {
+    fontSize: 9,
   },
 
   meta: {
@@ -191,6 +260,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
+  },
+  metaCompact: {
+    padding: 10,
   },
 
   left: {
@@ -205,11 +277,17 @@ const styles = StyleSheet.create({
     color: "#111827",
     marginBottom: 4,
   },
+  titleCompact: {
+    fontSize: 11,
+  },
 
   row: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 6,
+  },
+  rowCompact: {
+    marginBottom: 4,
   },
   price: {
     fontSize: 11,
@@ -217,20 +295,32 @@ const styles = StyleSheet.create({
     color: "#16A34A",
     marginRight: 6,
   },
+  priceCompact: {
+    fontSize: 9,
+  },
   dot: {
     fontSize: 11,
     color: "#9CA3AF",
     marginRight: 6,
+  },
+  dotCompact: {
+    fontSize: 9,
   },
   category: {
     fontSize: 11,
     color: "#6B7280",
     flexShrink: 1,
   },
+  categoryCompact: {
+    fontSize: 9,
+  },
 
   city: {
     fontSize: 10,
     color: "#6B7280",
+  },
+  cityCompact: {
+    fontSize: 8,
   },
 
   right: {
@@ -246,11 +336,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 6,
   },
+  bookmarkBtnCompact: {
+    width: 24,
+    height: 24,
+    marginBottom: 4,
+  },
 
   ratingRow: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 6,
+  },
+  ratingRowCompact: {
+    marginBottom: 4,
   },
   ratingText: {
     fontSize: 10,
@@ -258,14 +356,23 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginLeft: 4,
   },
+  ratingTextCompact: {
+    fontSize: 8,
+  },
 
   distanceWrap: {
     height: 14,
     justifyContent: "center",
   },
+  distanceWrapCompact: {
+    height: 12,
+  },
   distanceText: {
     fontSize: 10,
     color: "#6B7280",
     fontWeight: "600",
+  },
+  distanceTextCompact: {
+    fontSize: 8,
   },
 });
