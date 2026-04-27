@@ -178,7 +178,7 @@ router.post("/", authenticate, async (req, res) => {
 
     await refreshEventReviewStats(eventId);
 
-    const pointsEarned = comment.trim() ? 5 : 3;
+    const pointsEarned = 5 + sanitizedImages.length;
     await db.collection("users").doc(req.user.uid).update({
       points: FieldValue.increment(pointsEarned),
     });
@@ -227,7 +227,7 @@ router.get("/", authenticate, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/reviews/friends — Get social activity from people you follow plus your own
+// GET /api/reviews/friends — Social activity from mutual follows + your own
 // Used by HomePage activity feed and CommunityPage "Friend Reviews" tab
 // ---------------------------------------------------------------------------
 router.get("/friends", authenticate, async (req, res) => {
@@ -246,18 +246,23 @@ router.get("/friends", authenticate, async (req, res) => {
       dismissedFeedActivityIds.filter((id) => typeof id === "string" && id.trim().length > 0)
     );
 
-    const followingIds = currentUserDoc.exists
-      ? currentUserDoc.data().followingCount || []
+    const rawFollowing = currentUserDoc.exists ? currentUserDoc.data().followingCount || [] : [];
+    const followingIds = Array.isArray(rawFollowing)
+      ? rawFollowing.filter((id) => typeof id === "string" && id.trim().length > 0 && id !== viewerUid)
       : [];
 
-    const friendsSnap = await db
-      .collection("users")
-      .doc(viewerUid)
-      .collection("friends")
-      .get();
-    const subcollectionFriendIds = friendsSnap.docs.map((doc) => doc.id);
-    const friendIds = Array.from(new Set([...followingIds, ...subcollectionFriendIds]))
-      .filter((id) => typeof id === "string" && id.trim().length > 0 && id !== viewerUid);
+    const mutualFriendIds = [];
+    for (let i = 0; i < followingIds.length; i += 30) {
+      const batch = followingIds.slice(i, i + 30);
+      const snap = await db.collection("users").where("__name__", "in", batch).get();
+      snap.docs.forEach((doc) => {
+        const theirFollowing = doc.data().followingCount;
+        if (Array.isArray(theirFollowing) && theirFollowing.includes(viewerUid)) {
+          mutualFriendIds.push(doc.id);
+        }
+      });
+    }
+    const friendIds = Array.from(new Set(mutualFriendIds));
 
     const allReviewsMap = new Map();
 

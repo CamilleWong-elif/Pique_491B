@@ -141,6 +141,110 @@ router.get("/search", authenticate, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/users/me/points-breakdown — Debug current user's point sources
+// ---------------------------------------------------------------------------
+router.get("/me/points-breakdown", authenticate, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const [userDoc, reviewsSnap, bookingsSnap] = await Promise.all([
+      db.collection("users").doc(uid).get(),
+      db.collection("reviews").where("author", "==", uid).get(),
+      db.collection("bookings").where("userId", "==", uid).get(),
+    ]);
+
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: "User profile not found" });
+    }
+
+    const rateReviewCount = reviewsSnap.size;
+    const reviewPhotoCount = reviewsSnap.docs.reduce((sum, doc) => {
+      const images = doc.data().images;
+      return sum + (Array.isArray(images) ? images.length : 0);
+    }, 0);
+    const bookingsCount = bookingsSnap.size;
+
+    const rateReviewPoints = rateReviewCount * 5;
+    const reviewPhotoPoints = reviewPhotoCount;
+    const goingPoints = bookingsCount * 2;
+    const computedTotal = rateReviewPoints + reviewPhotoPoints + goingPoints;
+    const storedPoints = userDoc.data().points || 0;
+
+    const payload = {
+      userId: uid,
+      storedPoints,
+      computedTotal,
+      delta: storedPoints - computedTotal,
+      counts: {
+        rateReviewCount,
+        reviewPhotoCount,
+        bookingsCount,
+      },
+      pointsBySource: {
+        rateReview: rateReviewPoints,
+        reviewPhotos: reviewPhotoPoints,
+        goingBookings: goingPoints,
+      },
+    };
+
+    return res.json(payload);
+  } catch (err) {
+    console.error("GET /api/users/me/points-breakdown error:", err);
+    return res.status(500).json({ error: "Failed to compute points breakdown" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/users/:id/points-breakdown — Debug a user's point sources
+// ---------------------------------------------------------------------------
+router.get("/:id/points-breakdown", authenticate, async (req, res) => {
+  try {
+    const uid = req.params.id;
+    const [userDoc, reviewsSnap, bookingsSnap] = await Promise.all([
+      db.collection("users").doc(uid).get(),
+      db.collection("reviews").where("author", "==", uid).get(),
+      db.collection("bookings").where("userId", "==", uid).get(),
+    ]);
+
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const rateReviewCount = reviewsSnap.size;
+    const reviewPhotoCount = reviewsSnap.docs.reduce((sum, doc) => {
+      const images = doc.data().images;
+      return sum + (Array.isArray(images) ? images.length : 0);
+    }, 0);
+    const bookingsCount = bookingsSnap.size;
+
+    const rateReviewPoints = rateReviewCount * 5;
+    const reviewPhotoPoints = reviewPhotoCount;
+    const goingPoints = bookingsCount * 2;
+    const computedTotal = rateReviewPoints + reviewPhotoPoints + goingPoints;
+    const storedPoints = userDoc.data().points || 0;
+
+    return res.json({
+      userId: uid,
+      storedPoints,
+      computedTotal,
+      delta: storedPoints - computedTotal,
+      counts: {
+        rateReviewCount,
+        reviewPhotoCount,
+        bookingsCount,
+      },
+      pointsBySource: {
+        rateReview: rateReviewPoints,
+        reviewPhotos: reviewPhotoPoints,
+        goingBookings: goingPoints,
+      },
+    });
+  } catch (err) {
+    console.error("GET /api/users/:id/points-breakdown error:", err);
+    return res.status(500).json({ error: "Failed to compute points breakdown" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/users/:id — Get a specific user's profile
 // ---------------------------------------------------------------------------
 router.get("/:id", authenticate, async (req, res) => {

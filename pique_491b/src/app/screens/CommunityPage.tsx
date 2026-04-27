@@ -1,19 +1,17 @@
-import { apiDeleteReview, apiFollowUser, apiGetFriendReviews, apiGetReviews, apiSearchUsers, apiUnfollowUser } from '@/api';
+import { apiDeleteReview, apiFollowUser, apiGetFriendReviews, apiGetLeaderboard, apiSearchUsers, apiUnfollowUser } from '@/api';
 import { SocialActivity, SocialActivityCard } from '@/components/SocialActivityCard';
 import { NavigationBar } from '@/components/NavigationBar';
 import { useAuth } from '@/context/AuthContext';
 import { auth } from '@/firebase';
 import { resolveAvatarUrl } from '@/utils/avatar';
-import { Globe, Info, Search, Trophy, Users, X } from 'lucide-react-native';
-import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Globe, Info, RefreshCw, Search, Trophy, Users, X } from 'lucide-react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Placeholder data
-const mockFriends: any[] = [];
 const mockFriendRatedEvents: any[] = [];
 const mockEvents: any[] = [];
-const globalLeaderboardUsers: any[] = [];
 
 type Tab = 'leaderboard' | 'reviews' | 'find';
 type LeaderboardMode = 'global' | 'friends';
@@ -35,6 +33,10 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
+  const [leaderboardUsers, setLeaderboardUsers] = useState<any[]>([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [leaderboardRefreshing, setLeaderboardRefreshing] = useState(false);
+  const leaderboardReqId = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [friendReviews, setFriendReviews] = useState<SocialActivity[]>([]);
@@ -90,6 +92,35 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
       .finally(() => setReviewsLoading(false));
   }, [activeTab]);
 
+  const fetchLeaderboard = useCallback(
+    async (opts?: { pull?: boolean }) => {
+      if (activeTab !== 'leaderboard') return;
+      const pull = opts?.pull === true;
+      const reqId = ++leaderboardReqId.current;
+      if (pull) setLeaderboardRefreshing(true);
+      else setLeaderboardLoading(true);
+      try {
+        const data = await apiGetLeaderboard(leaderboardMode);
+        if (leaderboardReqId.current !== reqId) return;
+        setLeaderboardUsers(Array.isArray(data) ? data : []);
+      } catch (err: any) {
+        console.error('Failed to fetch leaderboard:', err);
+        if (leaderboardReqId.current === reqId) setLeaderboardUsers([]);
+      } finally {
+        if (leaderboardReqId.current === reqId) {
+          setLeaderboardLoading(false);
+          setLeaderboardRefreshing(false);
+        }
+      }
+    },
+    [activeTab, leaderboardMode]
+  );
+
+  useEffect(() => {
+    if (activeTab !== 'leaderboard') return;
+    void fetchLeaderboard({ pull: false });
+  }, [activeTab, leaderboardMode, fetchLeaderboard]);
+
   const handleReviewDelete = async (activityId: string) => {
     try {
       await apiDeleteReview(activityId);
@@ -132,7 +163,13 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
     return { bg: '#fee2e2', border: '#ef4444', text: '#991b1b' };
   };
 
-  const displayedUsers = leaderboardMode === 'friends' ? mockFriends : globalLeaderboardUsers;
+  const displayedUsers = leaderboardUsers;
+  const noMutualFriendsYet =
+    leaderboardMode === 'friends' &&
+    !leaderboardLoading &&
+    Boolean(currentUid) &&
+    displayedUsers.length === 1 &&
+    displayedUsers[0]?.id === currentUid;
 
   return (
     <View style={styles.container}>
@@ -141,6 +178,16 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         stickyHeaderIndices={[0]}
+        refreshControl={
+          activeTab === 'leaderboard' ? (
+            <RefreshControl
+              refreshing={leaderboardRefreshing}
+              onRefresh={() => void fetchLeaderboard({ pull: true })}
+              tintColor="#3b82f6"
+              colors={['#3b82f6']}
+            />
+          ) : undefined
+        }
       >
         {/* Sticky Header */}
         <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
@@ -201,6 +248,18 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
                 </TouchableOpacity>
               </View>
               <TouchableOpacity
+                style={styles.refreshButton}
+                onPress={() => void fetchLeaderboard({ pull: true })}
+                disabled={leaderboardLoading || leaderboardRefreshing}
+                accessibilityRole="button"
+                accessibilityLabel="Refresh leaderboard"
+              >
+                <RefreshCw
+                  size={18}
+                  color={leaderboardLoading || leaderboardRefreshing ? '#cbd5e1' : '#6b7280'}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={styles.infoButton}
                 onPress={() => setShowPointsModal(true)}
               >
@@ -210,21 +269,40 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
 
             <Text style={styles.subtext}>
               {leaderboardMode === 'friends'
-                ? 'Your friends ranked by activity points'
+                ? 'Mutual friends ranked by activity points'
                 : 'Everyone ranked by activity points'}
             </Text>
 
             {/* Leaderboard List */}
-            {displayedUsers.length === 0 && (
-              <Text style={styles.emptyText}>No users to display yet</Text>
+            {leaderboardLoading && !leaderboardRefreshing && (
+              <ActivityIndicator style={{ marginTop: 24 }} color="#3b82f6" />
             )}
-            {displayedUsers.map((user: any, index: number) => {
+            {!leaderboardLoading && displayedUsers.length === 0 && (
+              <View style={styles.emptyContainer}>
+                <Text style={styles.emptyText}>
+                  {leaderboardMode === 'friends'
+                    ? 'Looks like you have no mutual friends yet.'
+                    : 'No users to display yet'}
+                </Text>
+                {leaderboardMode === 'friends' ? (
+                  <Text style={styles.emptySubtext}>Invite your friends to use Pique!</Text>
+                ) : null}
+              </View>
+            )}
+            {!leaderboardLoading && noMutualFriendsYet && (
+              <View style={styles.mutualFriendsHint}>
+                <Text style={styles.mutualFriendsHintLine}>Looks like you have no mutual friends yet.</Text>
+                <Text style={styles.mutualFriendsHintInvite}>Invite your friends to use Pique!</Text>
+              </View>
+            )}
+            {!leaderboardLoading && displayedUsers.map((user: any, index: number) => {
               const rank = index + 1;
               const showTrophy = rank <= 3;
+              const isSelf = Boolean(currentUid && user.id === currentUid);
               return (
                 <TouchableOpacity
                   key={user.id}
-                  style={styles.leaderboardRow}
+                  style={[styles.leaderboardRow, isSelf && styles.leaderboardRowSelf]}
                   onPress={() => onNavigate('friendProfile', undefined, { friendName: user.id || user.name })}
                 >
                   {/* Rank */}
@@ -244,7 +322,10 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
                   )}
 
                   {/* Name */}
-                  <Text style={styles.userName}>{user.name}</Text>
+                  <View style={styles.userNameRow}>
+                    <Text style={styles.userName}>{user.name}</Text>
+                    {isSelf ? <Text style={styles.youBadge}>You</Text> : null}
+                  </View>
 
                   {/* Points */}
                   <View style={styles.pointsContainer}>
@@ -260,7 +341,7 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
         {/* Reviews Tab */}
         {activeTab === 'reviews' && (
           <View style={styles.tabContent}>
-            <Text style={styles.subtext}>Events your friends have attended and rated</Text>
+            <Text style={styles.subtext}>Events you and your mutual friends have attended and rated</Text>
 
             {reviewsLoading && <ActivityIndicator style={{ marginTop: 24 }} color="#3b82f6" />}
 
@@ -373,9 +454,9 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
             </View>
 
             {[
-              { label: 'Write a review', points: '+5 pts' },
-              { label: 'Rate an event', points: '+3 pts' },
-              { label: 'Mark "Going" to event', points: '+2 pts' },
+              { label: 'Rate/Review an event', points: '+5 pts' },
+              { label: 'Book an event', points: '+2 pts' },
+              { label: 'Each photo added with review', points: '+1 pt' },
             ].map((item) => (
               <View key={item.label} style={styles.pointRow}>
                 <Text style={styles.pointLabel}>{item.label}</Text>
@@ -486,6 +567,10 @@ const styles = StyleSheet.create({
   modeButtonTextActive: {
     color: '#111827',
   },
+  refreshButton: {
+    padding: 8,
+    borderRadius: 9999,
+  },
   infoButton: {
     padding: 8,
     borderRadius: 9999,
@@ -504,6 +589,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 8,
   },
+  leaderboardRowSelf: {
+    backgroundColor: '#dbeafe',
+    borderWidth: 1,
+    borderColor: '#3b82f6',
+  },
   rankContainer: {
     width: 32,
     alignItems: 'center',
@@ -518,11 +608,28 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
   },
-  userName: {
+  userNameRow: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 0,
+  },
+  userName: {
+    flexShrink: 1,
     fontSize: 16,
     fontWeight: '600',
     color: '#111827',
+  },
+  youBadge: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1d4ed8',
+    backgroundColor: '#bfdbfe',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    overflow: 'hidden',
   },
   pointsContainer: {
     alignItems: 'flex-end',
@@ -594,6 +701,29 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     textAlign: 'center',
     marginTop: 8,
+  },
+  mutualFriendsHint: {
+    backgroundColor: '#f0f9ff',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  mutualFriendsHintLine: {
+    fontSize: 14,
+    color: '#374151',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  mutualFriendsHintInvite: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0369a1',
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 20,
   },
   searchBar: {
     flexDirection: 'row',
