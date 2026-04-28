@@ -254,6 +254,7 @@ export default function App() {
           <MessagingScreen
             onBack={() => { setMessageRecipientId(undefined); handleNavigate('home'); }}
             openWithUserId={messageRecipientId}
+            onNavigate={handleNavigate}
           />
         )}
         {showApp && !needsSurvey && currentPage === 'settings' && (
