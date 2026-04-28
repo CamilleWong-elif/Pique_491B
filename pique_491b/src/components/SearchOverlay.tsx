@@ -1,8 +1,12 @@
 // SearchOverlay.tsx (React Native)
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ArrowLeft, MapPin, Mic, Search, X } from "lucide-react-native";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+const RECENT_SEARCHES_KEY = "@pique_recent_searches";
+const MAX_RECENT_SEARCHES = 8;
 
 type Props = {
   isOpen: boolean;
@@ -59,10 +63,22 @@ export function SearchOverlay({
     []
   );
 
-  const recentSearches = useMemo(
-    () => ["Paint and Sip Classes", "Yoga Studios", "Live Music Venues", "Comedy Shows"],
-    []
-  );
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    AsyncStorage.getItem(RECENT_SEARCHES_KEY).then((raw) => {
+      if (raw) setRecentSearches(JSON.parse(raw));
+    }).catch(() => {});
+  }, [isOpen]);
+
+  const saveSearch = useCallback((query: string) => {
+    setRecentSearches((prev) => {
+      const updated = [query, ...prev.filter((s) => s.toLowerCase() !== query.toLowerCase())].slice(0, MAX_RECENT_SEARCHES);
+      AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }, []);
 
   const suggestions = useMemo(() => {
     if (!searchText.trim()) return [];
@@ -111,12 +127,14 @@ export function SearchOverlay({
   const handleSearchSubmit = () => {
     const q = searchText.trim();
     if (!q) return;
+    saveSearch(q);
     onNavigateToExplore(q);
     onClose();
   };
 
   const handleSuggestionPress = (suggestion: string) => {
     setSearchText(suggestion);
+    saveSearch(suggestion);
     onNavigateToExplore(suggestion);
     onClose();
   };
