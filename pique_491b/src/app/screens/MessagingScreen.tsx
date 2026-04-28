@@ -1,4 +1,4 @@
-import { ArrowLeft, ImagePlus, Paperclip, Send, X, FileText, Download, Reply } from 'lucide-react-native';
+import { ArrowLeft, ImagePlus, Paperclip, Send, X, FileText, Download, Reply, Search, Calendar } from 'lucide-react-native';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ActivityIndicator,
@@ -13,6 +13,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from 'expo-image-picker';
@@ -50,6 +51,14 @@ type ReplyRef = {
   senderName: string;
 };
 
+type EventAttachment = {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  location?: string;
+  date?: string;
+};
+
 type Message = {
   id: string;
   text: string;
@@ -59,14 +68,16 @@ type Message = {
   fileUrl?: string;
   fileName?: string;
   replyTo?: ReplyRef;
+  eventAttachment?: EventAttachment;
 };
 
 interface MessagingScreenProps {
   onBack: () => void;
   openWithUserId?: string;
+  onNavigate?: (page: string, eventId?: string) => void;
 }
 
-export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps) {
+export function MessagingScreen({ onBack, openWithUserId, onNavigate }: MessagingScreenProps) {
   const currentUid = auth.currentUser?.uid ?? '';
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvo, setActiveConvo] = useState<Conversation | null>(null);
@@ -75,8 +86,20 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
   const [uploading, setUploading] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  // Event Picker State
+  const [isEventPickerVisible, setIsEventPickerVisible] = useState(false);
+  const [likedEvents, setLikedEvents] = useState<any[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+
   const inputRef = useRef<TextInput>(null);
   const flatListRef = useRef<FlatList>(null);
+
+  const filteredConversations = conversations.filter((c) => 
+    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    c.lastMessage.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   // Listen for conversations the current user participates in
   useEffect(() => {
@@ -133,7 +156,6 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
         };
       }));
 
-      // Sort by most recent (no composite index needed)
       fetched.sort((a, b) => b.sortTime - a.sortTime);
       setConversations(fetched);
     }, (error) => {
@@ -143,7 +165,7 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
     return () => unsubscribe();
   }, [currentUid]);
 
-  // Auto-open conversation with a specific user (e.g. from friend profile)
+  // Auto-open conversation with a specific user
   useEffect(() => {
     if (!openWithUserId || !currentUid) return;
 
@@ -153,7 +175,6 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
         const result = await apiStartConversation(openWithUserId);
         const convoId = result.id;
 
-        // Look up the friend's name
         let friendName = 'Unknown';
         let friendAvatar: string | undefined;
         try {
@@ -209,6 +230,7 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
           fileUrl: data.fileUrl || undefined,
           fileName: data.fileName || undefined,
           replyTo: data.replyTo || undefined,
+          eventAttachment: data.eventAttachment || undefined,
         };
       });
       setMessages(fetchedMessages);
@@ -241,9 +263,9 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
   };
 
   // Send a message
-  const sendMessage = async (opts?: { imageUrl?: string; fileUrl?: string; fileName?: string }) => {
+  const sendMessage = async (opts?: { imageUrl?: string; fileUrl?: string; fileName?: string; eventAttachment?: EventAttachment }) => {
     const textToSend = inputText.trim();
-    const hasContent = textToSend || opts?.imageUrl || opts?.fileUrl;
+    const hasContent = textToSend || opts?.imageUrl || opts?.fileUrl || opts?.eventAttachment;
     if (!hasContent || !activeConvo || !currentUid) return;
 
     const currentReply = replyTo;
@@ -267,6 +289,9 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
         messageData.fileUrl = opts.fileUrl;
         messageData.fileName = opts.fileName || 'file';
       }
+      if (opts?.eventAttachment) {
+        messageData.eventAttachment = opts.eventAttachment;
+      }
       if (currentReply) {
         messageData.replyTo = {
           id: currentReply.id,
@@ -278,7 +303,11 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
       batch.set(newMessageRef, messageData);
 
       const chatRef = doc(db, 'chats', activeConvo.id);
-      const lastMsg = textToSend || (opts?.imageUrl ? 'Photo' : `${opts?.fileName || 'File'}`);
+      const lastMsg = textToSend || 
+        (opts?.eventAttachment ? `Shared an event: ${opts.eventAttachment.name}` : 
+        (opts?.imageUrl ? 'Photo' : 
+        (opts?.fileName || 'File')));
+
       batch.update(chatRef, {
         lastMessage: lastMsg,
         updatedAt: serverTimestamp(),
@@ -291,7 +320,6 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
     }
   };
 
-  // Pick an image
   const handlePickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -300,52 +328,125 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+      mediaTypes: ['images'], 
+      allowsMultipleSelection: true,
       quality: 0.7,
     });
 
-    if (result.canceled || !result.assets[0]) return;
+    if (result.canceled || !result.assets || result.assets.length === 0) return;
 
-    const asset = result.assets[0];
     setUploading(true);
     try {
-      const fileName = asset.fileName || `image_${Date.now()}.jpg`;
-      const downloadUrl = await uploadToStorage(asset.uri, fileName);
-      await sendMessage({ imageUrl: downloadUrl });
+      // Step 1: Upload all images first
+      const uploadedUrls: string[] = [];
+      for (const asset of result.assets) {
+        const fileName = asset.fileName || `image_${Date.now()}.jpg`;
+        const downloadUrl = await uploadToStorage(asset.uri, fileName);
+        uploadedUrls.push(downloadUrl);
+      }
+      // Step 2: Send messages with URLs sequentially
+      for (const url of uploadedUrls) {
+        await sendMessage({ imageUrl: url });
+      }
     } catch (err) {
       console.error('Image upload error:', err);
-      Alert.alert('Upload failed', 'Could not upload image. Please try again.');
+      Alert.alert('Upload failed', 'Could not upload some images. Please try again.');
     } finally {
       setUploading(false);
     }
   };
 
-  // Pick a file
   const handlePickFile = async () => {
     try {
-      const result = await DocumentPicker.getDocumentAsync({ type: '*/*' });
-      if (result.canceled || !result.assets?.[0]) return;
+      const result = await DocumentPicker.getDocumentAsync({ 
+        type: '*/*',
+        multiple: true,
+      });
+      
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
 
-      const asset = result.assets[0];
       setUploading(true);
-      const fileName = asset.name || `file_${Date.now()}`;
-      const downloadUrl = await uploadToStorage(asset.uri, fileName);
-      await sendMessage({ fileUrl: downloadUrl, fileName });
+      try {
+        // Step 1: Upload all files first
+        const uploadedFiles: {url: string, name: string}[] = [];
+        for (const asset of result.assets) {
+          const fileName = asset.name || `file_${Date.now()}`;
+          const downloadUrl = await uploadToStorage(asset.uri, fileName);
+          uploadedFiles.push({url: downloadUrl, name: fileName});
+        }
+        // Step 2: Send messages with file URLs sequentially
+        for (const file of uploadedFiles) {
+          await sendMessage({ fileUrl: file.url, fileName: file.name });
+        }
+      } catch (err) {
+        console.error('File upload error:', err);
+        Alert.alert('Upload failed', 'Could not upload some files. Please try again.');
+      } finally {
+        setUploading(false);
+      }
     } catch (err) {
-      console.error('File upload error:', err);
-      Alert.alert('Upload failed', 'Could not upload file. Please try again.');
-    } finally {
-      setUploading(false);
+      console.error('Document picker error:', err);
     }
   };
 
-  // Set reply target
+  // Open Event Picker & Fetch Liked Events
+  const openEventPicker = async () => {
+    setIsEventPickerVisible(true);
+    setLoadingEvents(true);
+    try {
+      const userDoc = await getDoc(doc(db, 'users', currentUid));
+      const likedEventIds = userDoc.data()?.likedEvents || [];
+
+      if (likedEventIds.length > 0) {
+        const eventPromises = likedEventIds.map((id: string) => getDoc(doc(db, 'events', id)));
+        const eventSnaps = await Promise.all(eventPromises);
+        const fetched = eventSnaps
+          .filter(snap => snap.exists())
+          .map(snap => ({ id: snap.id, ...snap.data() }));
+        setLikedEvents(fetched);
+      } else {
+        setLikedEvents([]);
+      }
+    } catch (error) {
+      console.error("Error fetching liked events:", error);
+      Alert.alert("Error", "Could not load your liked events.");
+    } finally {
+      setLoadingEvents(false);
+    }
+  };
+
+  const handleSendEvent = (event: any) => {
+    setIsEventPickerVisible(false);
+
+    // Format date string gracefully
+    let dateStr = '';
+    const rawDate = event.date || event.startDate;
+    if (rawDate) {
+      if (typeof rawDate?.toDate === 'function') {
+        dateStr = rawDate.toDate().toLocaleDateString();
+      } else if (rawDate instanceof Date) {
+        dateStr = rawDate.toLocaleDateString();
+      } else {
+        dateStr = new Date(rawDate).toLocaleDateString();
+      }
+    }
+
+    const eventAttachment: EventAttachment = {
+      id: event.id,
+      name: event.name || 'Untitled Event',
+      imageUrl: event.imageUrl || event.image || (event.photos?.[0]) || '',
+      location: event.city || event.location || '',
+      date: dateStr && dateStr !== 'Invalid Date' ? dateStr : '', 
+    };
+
+    sendMessage({ eventAttachment });
+  };
+
   const handleReply = useCallback((message: Message) => {
     setReplyTo(message);
     inputRef.current?.focus();
   }, []);
 
-  // Render reply preview inside a message bubble
   const renderReplyPreview = (reply: ReplyRef, fromMe: boolean) => (
     <View style={[styles.replyInBubble, fromMe ? styles.replyInBubbleMe : styles.replyInBubbleThem]}>
       <Text style={[styles.replyInBubbleName, fromMe && styles.replyInBubbleNameMe]} numberOfLines={1}>
@@ -357,22 +458,49 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
     </View>
   );
 
-  // Render a single message bubble
   const renderMessage = ({ item }: { item: Message }) => (
     <View style={[styles.messageBubbleWrap, item.fromMe && styles.messageBubbleWrapMe]}>
       <View style={[styles.bubble, item.fromMe ? styles.bubbleMe : styles.bubbleThem]}>
         {/* Reply reference */}
         {item.replyTo && renderReplyPreview(item.replyTo, item.fromMe)}
 
+        {/* Event Attachment Card */}
+        {item.eventAttachment && (
+          <TouchableOpacity 
+            style={[styles.eventMsgCard, item.fromMe ? styles.eventMsgCardMe : styles.eventMsgCardThem]} 
+            onPress={() => onNavigate?.('event', item.eventAttachment!.id)}
+            activeOpacity={0.8}
+          >
+            {item.eventAttachment.imageUrl ? (
+              <Image source={{ uri: item.eventAttachment.imageUrl }} style={styles.eventMsgImg} resizeMode="cover" />
+            ) : (
+              <View style={styles.eventMsgImgPlaceholder}>
+                <Calendar size={24} color={item.fromMe ? "#9ca3af" : "#6b7280"} />
+              </View>
+            )}
+            <View style={styles.eventMsgInfo}>
+              <Text style={[styles.eventMsgName, item.fromMe && styles.eventMsgTextMe]} numberOfLines={2}>
+                {item.eventAttachment.name}
+              </Text>
+              {(item.eventAttachment.date || item.eventAttachment.location) && (
+                <Text style={[styles.eventMsgSub, item.fromMe && styles.eventMsgSubMe]} numberOfLines={1}>
+                  {item.eventAttachment.date} {item.eventAttachment.date && item.eventAttachment.location ? '•' : ''} {item.eventAttachment.location}
+                </Text>
+              )}
+              <Text style={[styles.eventMsgTapText, item.fromMe && styles.eventMsgSubMe]}>Tap to view details</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
         {/* Inline image */}
-        {item.imageUrl ? (
+        {item.imageUrl && !item.eventAttachment ? (
           <TouchableOpacity onPress={() => Linking.openURL(item.imageUrl!)} activeOpacity={0.8}>
             <Image source={{ uri: item.imageUrl }} style={styles.chatImage} resizeMode="cover" />
           </TouchableOpacity>
         ) : null}
 
         {/* File attachment */}
-        {item.fileUrl && !item.imageUrl ? (
+        {item.fileUrl && !item.imageUrl && !item.eventAttachment ? (
           <TouchableOpacity style={styles.fileRow} onPress={() => Linking.openURL(item.fileUrl!)}>
             <FileText size={20} color={item.fromMe ? '#93c5fd' : '#3b82f6'} />
             <Text
@@ -394,15 +522,19 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
 
       {/* Reply button + timestamp row */}
       <View style={[styles.messageFooter, item.fromMe && styles.messageFooterMe]}>
-        <TouchableOpacity onPress={() => handleReply(item)} style={styles.replyBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Reply size={14} color="#9ca3af" />
+        <TouchableOpacity 
+          onLongPress={() => handleReply(item)} 
+          delayLongPress={250} 
+          style={styles.replyBtn} 
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Reply size={18} color="#3b82f6" />
         </TouchableOpacity>
         <Text style={styles.messageTime}>{item.timestamp}</Text>
       </View>
     </View>
   );
 
-  // Loading state (e.g. opening conversation from friend profile)
   if (loading) {
     return (
       <SafeAreaView style={styles.root}>
@@ -443,7 +575,6 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
         />
 
-        {/* Upload indicator */}
         {uploading && (
           <View style={styles.uploadingBar}>
             <ActivityIndicator size="small" color="#3b82f6" />
@@ -451,7 +582,6 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
           </View>
         )}
 
-        {/* Reply preview bar */}
         {replyTo && (
           <View style={styles.replyBar}>
             <View style={styles.replyBarContent}>
@@ -479,6 +609,9 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
             <TouchableOpacity onPress={handlePickFile} disabled={uploading} style={styles.attachBtn}>
               <Paperclip size={20} color={uploading ? '#d1d5db' : '#6b7280'} />
             </TouchableOpacity>
+            <TouchableOpacity onPress={openEventPicker} disabled={uploading} style={styles.attachBtn}>
+              <Calendar size={20} color={uploading ? '#d1d5db' : '#6b7280'} />
+            </TouchableOpacity>
             <TextInput
               ref={inputRef}
               style={styles.input}
@@ -490,14 +623,73 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
               onSubmitEditing={() => sendMessage()}
             />
             <TouchableOpacity
-              style={[styles.sendBtn, (!inputText.trim() || uploading) && styles.sendBtnDisabled]}
+              style={[styles.sendBtn, (!inputText.trim() && !uploading ? styles.sendBtnDisabled : null)]}
               onPress={() => sendMessage()}
-              disabled={!inputText.trim() || uploading}
+              disabled={!inputText.trim() && !uploading}
             >
               <Send size={18} color="#fff" />
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+
+        {/* Modal for selecting a liked event */}
+        <Modal visible={isEventPickerVisible} animationType="slide" transparent>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Share a Liked Event</Text>
+                <TouchableOpacity onPress={() => setIsEventPickerVisible(false)}>
+                  <X size={24} color="#374151" />
+                </TouchableOpacity>
+              </View>
+
+              {loadingEvents ? (
+                <View style={styles.modalEmpty}>
+                  <ActivityIndicator size="large" color="#3b82f6" />
+                  <Text style={styles.modalEmptyText}>Loading your events...</Text>
+                </View>
+              ) : likedEvents.length === 0 ? (
+                <View style={styles.modalEmpty}>
+                  <Text style={styles.modalEmptyText}>You don't have any liked events to share.</Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={likedEvents}
+                  keyExtractor={item => item.id}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={{ paddingVertical: 8 }}
+                  renderItem={({ item }) => {
+                    const img = item.imageUrl || item.image || (item.photos && item.photos[0]);
+                    
+                    let dateStr = '';
+                    const rawDate = item.date || item.startDate;
+                    if (rawDate) {
+                      dateStr = typeof rawDate?.toDate === 'function' ? rawDate.toDate().toLocaleDateString() : new Date(rawDate).toLocaleDateString();
+                    }
+
+                    return (
+                      <TouchableOpacity style={styles.pickerEventRow} onPress={() => handleSendEvent(item)}>
+                        {img ? (
+                          <Image source={{ uri: img }} style={styles.pickerEventImg} />
+                        ) : (
+                          <View style={styles.pickerEventImgPlaceholder}>
+                            <Text style={styles.pickerEventImgText}>{item.name?.slice(0, 2).toUpperCase()}</Text>
+                          </View>
+                        )}
+                        <View style={styles.pickerEventInfo}>
+                          <Text style={styles.pickerEventName} numberOfLines={1}>{item.name}</Text>
+                          <Text style={styles.pickerEventSub} numberOfLines={1}>
+                            {dateStr} {dateStr && (item.city || item.location) ? '•' : ''} {item.city || item.location}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  }}
+                />
+              )}
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     );
   }
@@ -513,6 +705,23 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
         <View style={{ width: 24 }} />
       </View>
 
+      <View style={styles.searchContainer}>
+        <Search size={18} color="#9ca3af" />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search conversations..."
+          placeholderTextColor="#9ca3af"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          clearButtonMode="while-editing"
+        />
+        {searchQuery.length > 0 && Platform.OS === 'android' && (
+          <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <X size={18} color="#9ca3af" />
+          </TouchableOpacity>
+        )}
+      </View>
+
       {conversations.length === 0 && (
         <View style={styles.emptyWrap}>
           <Text style={styles.emptyText}>No conversations yet</Text>
@@ -520,8 +729,14 @@ export function MessagingScreen({ onBack, openWithUserId }: MessagingScreenProps
         </View>
       )}
 
+      {conversations.length > 0 && filteredConversations.length === 0 && (
+        <View style={styles.emptyWrap}>
+          <Text style={styles.emptyText}>No results found</Text>
+        </View>
+      )}
+
       <FlatList
-        data={conversations}
+        data={filteredConversations}
         keyExtractor={c => c.id}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         renderItem={({ item }) => (
@@ -566,6 +781,25 @@ const styles = StyleSheet.create({
   },
   avatarSmallImg: { width: '100%', height: '100%' },
   avatarText: { fontSize: 11, fontWeight: '700', color: '#374151' },
+
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+    marginHorizontal: 18,
+    marginTop: 12,
+    marginBottom: 4,
+    paddingHorizontal: 12,
+    height: 40,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#111827',
+    paddingVertical: 8, 
+  },
 
   convoRow: {
     flexDirection: 'row', alignItems: 'center',
@@ -657,6 +891,60 @@ const styles = StyleSheet.create({
   fileName: { fontSize: 13, color: '#3b82f6', flex: 1, fontWeight: '600' },
   fileNameMe: { color: '#93c5fd' },
 
+  // Event Bubble UI
+  eventMsgCard: {
+    width: 220,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+    marginBottom: 4,
+  },
+  eventMsgCardMe: {
+    backgroundColor: '#3f3f46', 
+    borderColor: '#52525b',
+  },
+  eventMsgCardThem: {
+    backgroundColor: '#ffffff',
+    borderColor: '#e5e7eb',
+  },
+  eventMsgImg: {
+    width: '100%',
+    height: 120,
+    backgroundColor: '#e5e7eb',
+  },
+  eventMsgImgPlaceholder: {
+    width: '100%',
+    height: 120,
+    backgroundColor: '#d1d5db',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eventMsgInfo: {
+    padding: 10,
+  },
+  eventMsgName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  eventMsgTextMe: {
+    color: '#ffffff',
+  },
+  eventMsgSub: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 6,
+  },
+  eventMsgSubMe: {
+    color: '#a1a1aa',
+  },
+  eventMsgTapText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#3b82f6',
+  },
+
   uploadingBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -675,7 +963,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1, borderTopColor: '#e5e7eb',
   },
   attachBtn: {
-    width: 36, height: 36,
+    width: 34, height: 36,
     alignItems: 'center', justifyContent: 'center',
   },
   input: {
@@ -687,6 +975,86 @@ const styles = StyleSheet.create({
     borderRadius: 20, alignItems: 'center', justifyContent: 'center',
   },
   sendBtnDisabled: { backgroundColor: '#9ca3af' },
+
+  // Event Picker Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    height: '65%',
+    padding: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    paddingBottom: 16,
+    marginBottom: 8,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  modalEmpty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  modalEmptyText: {
+    fontSize: 15,
+    color: '#6b7280',
+    textAlign: 'center',
+  },
+  pickerEventRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+    gap: 12,
+  },
+  pickerEventImg: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    backgroundColor: '#e5e7eb',
+  },
+  pickerEventImgPlaceholder: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    backgroundColor: '#d1d5db',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pickerEventImgText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#374151',
+  },
+  pickerEventInfo: {
+    flex: 1,
+  },
+  pickerEventName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  pickerEventSub: {
+    fontSize: 13,
+    color: '#6b7280',
+  },
 });
 
 export default MessagingScreen;
