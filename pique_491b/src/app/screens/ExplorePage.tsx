@@ -141,11 +141,16 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
   const isFiltered = appliedCategories.length > 0 || appliedQuickDate !== null || appliedStartDate !== null || appliedEndDate !== null;
   const isMeetInMiddleLoading = isEventsLoading || loading || !isLocationResolved;
 
-  useEffect(() => {
-    const nextQuery = initialSearchQuery || '';
-    setSearchQuery(nextQuery);
-    setCommittedSearchQuery(nextQuery);
-  }, [initialSearchQuery]);
+  // Sync initialSearchQuery prop to local state during render (not in useEffect)
+  // so the useMemo below already has the correct committedSearchQuery on the
+  // first render after navigation. A useEffect would run *after* render, causing
+  // a flash of "no events" before the search actually applies.
+  const [prevInitialSearchQuery, setPrevInitialSearchQuery] = useState(initialSearchQuery);
+  if (initialSearchQuery !== prevInitialSearchQuery) {
+    setPrevInitialSearchQuery(initialSearchQuery);
+    setSearchQuery(initialSearchQuery || '');
+    setCommittedSearchQuery(initialSearchQuery || '');
+  }
 
   const handleSubmitSearch = () => {
     setCommittedSearchQuery(searchQuery.trim());
@@ -664,7 +669,9 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
     // was causing events to vanish when the device's reported location was
     // far from where the event pool actually is (e.g. emulator in Mountain
     // View, events in LA).
-    let eventsInRange = eventsBySearch.filter((event: any) => getEventCoords(event));
+    let eventsInRange = normalizedQuery
+      ? eventsBySearch
+      : eventsBySearch.filter((event: any) => getEventCoords(event));
 
     if (appliedQuickDate === 'today') {
       eventsInRange = eventsInRange.filter((e: any) => getEventDate(e).toDateString() === now.toDateString());
