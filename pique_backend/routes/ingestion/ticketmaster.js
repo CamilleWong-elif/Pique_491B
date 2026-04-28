@@ -11,11 +11,40 @@ const MIN_START = "2026-01-01T00:00:00Z";
 const PAGE_SIZE = 100;
 const MAX_PAGES = 10;
 
-function pickBestImage(images = []) {
-  if (!images.length) return null;
-  const wide = images.filter((i) => i.ratio === "16_9");
-  const pool = wide.length ? wide : images;
-  return pool.reduce((best, cur) => (cur.width > (best?.width || 0) ? cur : best), null)?.url || null;
+function normalizeImageUrl(raw) {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  if (trimmed.startsWith("http://")) return `https://${trimmed.slice("http://".length)}`;
+  return trimmed;
+}
+
+function collectImageCandidates(images = []) {
+  if (!Array.isArray(images) || images.length === 0) return [];
+  const scored = images
+    .map((img) => {
+      const width = Number(img?.width) || 0;
+      const height = Number(img?.height) || 0;
+      const ratioScore = img?.ratio === "16_9" ? 1000000 : 0;
+      const area = width * height;
+      return {
+        url: normalizeImageUrl(img?.url),
+        score: ratioScore + area,
+      };
+    })
+    .filter((row) => !!row.url)
+    .sort((a, b) => b.score - a.score);
+
+  const unique = [];
+  const seen = new Set();
+  for (const row of scored) {
+    if (!row.url || seen.has(row.url)) continue;
+    seen.add(row.url);
+    unique.push(row.url);
+    if (unique.length >= 6) break;
+  }
+  return unique;
 }
 
 // Ticketmaster's priceRanges are USD min/max. Bucket min -> Pique's 0-3 pricePoint.
@@ -34,7 +63,8 @@ function mapTicketmasterEvent(tmEvent) {
   const endDateTime = tmEvent?.dates?.end?.dateTime || tmEvent?.dates?.end?.localDate;
 
   const categories = mapTicketmasterClassifications(tmEvent?.classifications);
-  const imageUrl = pickBestImage(tmEvent?.images);
+  const imageUrls = collectImageCandidates(tmEvent?.images);
+  const imageUrl = imageUrls[0] || null;
   const pricePoint = priceToBucket(tmEvent?.priceRanges);
 
   const latStr = venue?.location?.latitude;
@@ -51,7 +81,7 @@ function mapTicketmasterEvent(tmEvent) {
     name: tmEvent.name || "Untitled Event",
     description,
     imageUrl,
-    imageUrls: imageUrl ? [imageUrl] : [],
+    imageUrls,
     startDate: startDateTime || null,
     endDate: endDateTime || null,
     date: startDateTime || null,

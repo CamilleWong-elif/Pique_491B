@@ -3,10 +3,11 @@ import { NavigationBar } from '@/components/NavigationBar';
 import { resolveAvatarUrl } from '@/utils/avatar';
 import { auth } from "@/firebase";
 import { apiGetEvents, apiGetUsers, apiGetFollowing } from '@/api';
+import { Image as ExpoImage } from "expo-image";
 import * as Location from 'expo-location';
 import { ArrowLeft, CircleHelp, Crosshair, Search, SlidersHorizontal, Star, Users, X } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Dimensions, Image, Modal, Platform, PanResponder, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Animated, Dimensions, Modal, Platform, PanResponder, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import MapView, { Circle, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,7 +28,7 @@ const calculateDistance = (lat1: number, lng1: number, lat2: number, lng2: numbe
 /** Bucket key for events sharing the same ~spot on the map (avoids native marker z-fighting). */
 const COORD_BUCKET_DECIMALS = 5;
 /** ~6 m at the equator — enough separation for circular markers without misleading the user. */
-const COINCIDENT_MARKER_STEP_DEG = 0.000055;
+const COINCIDENT_MARKER_STEP_DEG = 0.00009;
 
 function buildEventMarkerDisplayCoords(
   eventsList: any[],
@@ -809,6 +810,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
       ref={mapRef}
       provider={PROVIDER_GOOGLE}
       style={styles.map}
+      moveOnMarkerPress={false}
       onLayout={(e) => {
         const { width, height } = e.nativeEvent.layout;
         setMapSize({ width, height });
@@ -885,7 +887,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
             ]}
           >
             {eventImageUri ? (
-              <Image source={{ uri: eventImageUri }} style={styles.markerImage} />
+              <ExpoImage source={{ uri: eventImageUri }} style={styles.markerImage} />
             ) : (
               <Text style={styles.markerFallbackText}>{eventInitial}</Text>
             )}
@@ -916,7 +918,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
         >
           <View style={[styles.markerCircle, styles.markerFriend]}>
             {friendImageUri ? (
-              <Image source={{ uri: friendImageUri }} style={styles.markerImage} />
+              <ExpoImage source={{ uri: friendImageUri }} style={styles.markerImage} />
             ) : (
               <Text style={styles.markerFallbackText}>{friendInitial}</Text>
             )}
@@ -952,90 +954,92 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
     </MapView>
 
     {/* Marker preview overlay (anchored beside marker) */}
-    {selectedEventPreview && previewAnchor && mapSize ? (() => {
-      const windowW = Dimensions.get('window').width;
-      // Make the preview card a bit wider than it is tall,
-      // and closer to the proportions in the design mock.
-      const CARD_W = Math.max(140, Math.floor(windowW * 0.36));
-      const CARD_H = Math.floor(CARD_W * 1.08);
-      const GAP = 10;
-      const PAD = 8;
-      const side =
-        previewAnchor.x + GAP + CARD_W + PAD <= mapSize.width ? 'right' : 'left';
-      const rawLeft =
-        side === 'right'
-          ? previewAnchor.x + GAP
-          : previewAnchor.x - GAP - CARD_W;
-      const rawTop = previewAnchor.y - CARD_H / 2;
-      const left = Math.max(PAD, Math.min(rawLeft, mapSize.width - CARD_W - PAD));
-      const top = Math.max(PAD, Math.min(rawTop, mapSize.height - CARD_H - PAD));
-      const dateVal = selectedEventPreview?.date ?? selectedEventPreview?.startDate;
-      const startDateStr = formattoMMDD(dateVal);
-      const eventForCard = {
-        id: selectedEventPreview?.id,
-        name: selectedEventPreview?.name ?? '',
-        imageUrl:
-          selectedEventPreview?.imageUrl ??
-          selectedEventPreview?.image ??
-          (Array.isArray(selectedEventPreview?.photos) ? selectedEventPreview.photos[0] : undefined),
-        startDate: startDateStr ?? selectedEventPreview?.startDate,
-        endDate: selectedEventPreview?.endDate,
-        category: selectedEventPreview?.category,
-        city: selectedEventPreview?.city ?? selectedEventPreview?.location,
-        pricePoint: selectedEventPreview?.pricePoint,
-        rating: selectedEventPreview?.rating,
-        distance: selectedEventPreview?.distance,
-      } as any;
+    <View style={styles.previewLayer} pointerEvents="box-none">
+      {selectedEventPreview && previewAnchor && mapSize ? (() => {
+        const windowW = Dimensions.get('window').width;
+        // Make the preview card a bit wider than it is tall,
+        // and closer to the proportions in the design mock.
+        const CARD_W = Math.max(140, Math.floor(windowW * 0.36));
+        const CARD_H = Math.floor(CARD_W * 1.08);
+        const GAP = 10;
+        const PAD = 8;
+        const side =
+          previewAnchor.x + GAP + CARD_W + PAD <= mapSize.width ? 'right' : 'left';
+        const rawLeft =
+          side === 'right'
+            ? previewAnchor.x + GAP
+            : previewAnchor.x - GAP - CARD_W;
+        const rawTop = previewAnchor.y - CARD_H / 2;
+        const left = Math.max(PAD, Math.min(rawLeft, mapSize.width - CARD_W - PAD));
+        const top = Math.max(PAD, Math.min(rawTop, mapSize.height - CARD_H - PAD));
+        const dateVal = selectedEventPreview?.date ?? selectedEventPreview?.startDate;
+        const startDateStr = formattoMMDD(dateVal);
+        const eventForCard = {
+          id: selectedEventPreview?.id,
+          name: selectedEventPreview?.name ?? '',
+          imageUrl:
+            selectedEventPreview?.imageUrl ??
+            selectedEventPreview?.image ??
+            (Array.isArray(selectedEventPreview?.photos) ? selectedEventPreview.photos[0] : undefined),
+          startDate: startDateStr ?? selectedEventPreview?.startDate,
+          endDate: selectedEventPreview?.endDate,
+          category: selectedEventPreview?.category,
+          city: selectedEventPreview?.city ?? selectedEventPreview?.location,
+          pricePoint: selectedEventPreview?.pricePoint,
+          rating: selectedEventPreview?.rating,
+          distance: selectedEventPreview?.distance,
+        } as any;
 
-      return (
-        <View style={[styles.previewCard, { left, top, width: CARD_W }]}>
-          <EventCard
-            event={eventForCard}
-            onPress={() => onNavigate('event', selectedEventPreview.id)}
-            hideBookmark
-            compact
-          />
-        </View>
-      );
-    })() : null}
-
-    {selectedFriendPreview && previewAnchor && mapSize ? (() => {
-      const windowW = Dimensions.get('window').width;
-      const CARD_W = Math.max(120, Math.floor(windowW / 3));
-      const CARD_H = 112;
-      const GAP = 10;
-      const PAD = 8;
-      const side =
-        previewAnchor.x + GAP + CARD_W + PAD <= mapSize.width ? 'right' : 'left';
-      const rawLeft =
-        side === 'right'
-          ? previewAnchor.x + GAP
-          : previewAnchor.x - GAP - CARD_W;
-      const rawTop = previewAnchor.y - CARD_H / 2;
-      const left = Math.max(PAD, Math.min(rawLeft, mapSize.width - CARD_W - PAD));
-      const top = Math.max(PAD, Math.min(rawTop, mapSize.height - CARD_H - PAD));
-      return (
-      <TouchableOpacity
-        activeOpacity={0.95}
-        style={[styles.previewCardFriend, { left, top, width: CARD_W }]}
-        onPress={() => onNavigate('friendProfile', undefined, { friendName: selectedFriendPreview.id || selectedFriendPreview.name })}
-      >
-        <View style={styles.previewFriendContent}>
-          <View style={[styles.markerCircle, styles.markerFriend, { width: 54, height: 54, borderRadius: 27 }]}>
-            {selectedFriendPreview?.photoURL ? (
-              <Image source={{ uri: selectedFriendPreview.photoURL }} style={styles.markerImage} />
-            ) : (
-              <Text style={[styles.markerFallbackText, { fontSize: 18 }]}>
-                {String(selectedFriendPreview?.name || 'U').trim().slice(0, 1).toUpperCase()}
-              </Text>
-            )}
+        return (
+          <View style={[styles.previewCard, { left, top, width: CARD_W }]}>
+            <EventCard
+              event={eventForCard}
+              onPress={() => onNavigate('event', selectedEventPreview.id)}
+              hideBookmark
+              compact
+            />
           </View>
-          <Text style={styles.previewFriendName}>{String(selectedFriendPreview?.name || '')}</Text>
-          <Text style={styles.previewFriendCta}>View Profile</Text>
-        </View>
-      </TouchableOpacity>
-      );
-    })() : null}
+        );
+      })() : null}
+
+      {selectedFriendPreview && previewAnchor && mapSize ? (() => {
+        const windowW = Dimensions.get('window').width;
+        const CARD_W = Math.max(120, Math.floor(windowW / 3));
+        const CARD_H = 112;
+        const GAP = 10;
+        const PAD = 8;
+        const side =
+          previewAnchor.x + GAP + CARD_W + PAD <= mapSize.width ? 'right' : 'left';
+        const rawLeft =
+          side === 'right'
+            ? previewAnchor.x + GAP
+            : previewAnchor.x - GAP - CARD_W;
+        const rawTop = previewAnchor.y - CARD_H / 2;
+        const left = Math.max(PAD, Math.min(rawLeft, mapSize.width - CARD_W - PAD));
+        const top = Math.max(PAD, Math.min(rawTop, mapSize.height - CARD_H - PAD));
+        return (
+        <TouchableOpacity
+          activeOpacity={0.95}
+          style={[styles.previewCardFriend, { left, top, width: CARD_W }]}
+          onPress={() => onNavigate('friendProfile', undefined, { friendName: selectedFriendPreview.id || selectedFriendPreview.name })}
+        >
+          <View style={styles.previewFriendContent}>
+            <View style={[styles.markerCircle, styles.markerFriend, { width: 54, height: 54, borderRadius: 27 }]}>
+              {selectedFriendPreview?.photoURL ? (
+                <ExpoImage source={{ uri: selectedFriendPreview.photoURL }} style={styles.markerImage} />
+              ) : (
+                <Text style={[styles.markerFallbackText, { fontSize: 18 }]}>
+                  {String(selectedFriendPreview?.name || 'U').trim().slice(0, 1).toUpperCase()}
+                </Text>
+              )}
+            </View>
+            <Text style={styles.previewFriendName}>{String(selectedFriendPreview?.name || '')}</Text>
+            <Text style={styles.previewFriendCta}>View Profile</Text>
+          </View>
+        </TouchableOpacity>
+        );
+      })() : null}
+    </View>
 
       {/* Top Search UI */}
       <View style={styles.topUI} pointerEvents="box-none">
@@ -1403,6 +1407,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: '#111827',
+  },
+  previewLayer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 15, // keep below top UI/map controls and sheet
   },
   previewCard: {
     position: 'absolute',

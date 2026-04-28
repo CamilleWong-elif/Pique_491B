@@ -5,6 +5,35 @@ const { FieldPath } = require("firebase-admin/firestore");
 
 const router = express.Router();
 
+function normalizeImageUrl(raw) {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  if (trimmed.startsWith("http://")) return `https://${trimmed.slice("http://".length)}`;
+  return trimmed;
+}
+
+function pickEventImage(data = {}) {
+  const direct = normalizeImageUrl(data.imageUrl || data.image);
+  if (direct) return direct;
+  if (Array.isArray(data.imageUrls)) {
+    for (const url of data.imageUrls) {
+      const normalized = normalizeImageUrl(url);
+      if (normalized) return normalized;
+    }
+  }
+  if (Array.isArray(data.photos)) {
+    for (const item of data.photos) {
+      const fromString = normalizeImageUrl(item);
+      if (fromString) return fromString;
+      const fromObject = normalizeImageUrl(item?.url || item?.uri || item?.src);
+      if (fromObject) return fromObject;
+    }
+  }
+  return null;
+}
+
 // Batch-fetch event docs by ID (Firestore caps "in" at 30)
 async function fetchEventsByIds(ids) {
   if (ids.length === 0) return [];
@@ -189,7 +218,7 @@ router.get("/", authenticate, async (req, res) => {
       // Small random factor so the list isn't identical every load
       score += Math.random() * 0.5;
 
-      scored.push({ id: doc.id, ...data, score });
+      scored.push({ id: doc.id, ...data, imageUrl: pickEventImage(data), score });
     }
 
     scored.sort((a, b) => b.score - a.score);

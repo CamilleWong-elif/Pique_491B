@@ -3,7 +3,6 @@ import { Bookmark, Star } from "lucide-react-native";
 import React, { useState } from "react";
 import {
     AccessibilityRole,
-    Image,
     Platform,
     Pressable,
     StyleSheet,
@@ -11,6 +10,7 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
+import { Image as ExpoImage } from "expo-image";
 import type { Event } from "../types/Event";
 
 /**
@@ -31,6 +31,17 @@ type Props = {
 
 export function EventCard({ event, onPress, hideBookmark = false, isBookmarked = false, onBookmarkPress, compact = false }: Props) {
   const [imageError, setImageError] = useState(false);
+
+  const normalizeImageUrl = (raw?: string): string => {
+    if (!raw) return "";
+    const trimmed = raw.trim();
+    if (!trimmed) return "";
+    if (trimmed.startsWith("//")) return `https:${trimmed}`;
+    if (trimmed.startsWith("http://")) return `https://${trimmed.slice("http://".length)}`;
+    return trimmed;
+  };
+
+  const imageUri = normalizeImageUrl(event.imageUrl);
 
   const formatRating = (rating: unknown): string => {
     const numericRating = typeof rating === "number" ? rating : Number(rating);
@@ -112,11 +123,11 @@ export function EventCard({ event, onPress, hideBookmark = false, isBookmarked =
       accessibilityLabel={`Open ${event.name} details`}
     >
       <View style={[styles.imageWrap, compact && styles.imageWrapCompact]}>
-        {!imageError && event.imageUrl ? (
-          <Image
-            source={{ uri: event.imageUrl }}
+        {!imageError && imageUri ? (
+          <ExpoImage
+            source={{ uri: imageUri }}
             style={styles.image}
-            resizeMode="cover"
+            contentFit="cover"
             onError={() => setImageError(true)}
           />
         ) : (

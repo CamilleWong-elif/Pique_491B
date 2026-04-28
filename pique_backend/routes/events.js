@@ -53,6 +53,35 @@ function computeReviewStatsForEventReviews(reviews = []) {
   };
 }
 
+function normalizeImageUrl(raw) {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  if (trimmed.startsWith("http://")) return `https://${trimmed.slice("http://".length)}`;
+  return trimmed;
+}
+
+function pickEventImage(data = {}) {
+  const direct = normalizeImageUrl(data.imageUrl || data.image);
+  if (direct) return direct;
+  if (Array.isArray(data.imageUrls)) {
+    for (const url of data.imageUrls) {
+      const normalized = normalizeImageUrl(url);
+      if (normalized) return normalized;
+    }
+  }
+  if (Array.isArray(data.photos)) {
+    for (const item of data.photos) {
+      const fromString = normalizeImageUrl(item);
+      if (fromString) return fromString;
+      const fromObject = normalizeImageUrl(item?.url || item?.uri || item?.src);
+      if (fromObject) return fromObject;
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/events — Create a new event
 // Replaces: addDoc(collection(db, "events"), {...}) in CreateEventPage.tsx
@@ -156,7 +185,16 @@ router.get("/", authenticate, async (req, res) => {
       }
       const snaps = await Promise.all(batches);
       const events = snaps.flatMap((snap) =>
-        snap.docs.map((doc) => ({ id: doc.id, ...doc.data(), rating: 0, reviewCount: 0 }))
+        snap.docs.map((doc) => {
+          const data = doc.data() || {};
+          return {
+            id: doc.id,
+            ...data,
+            imageUrl: pickEventImage(data),
+            rating: 0,
+            reviewCount: 0,
+          };
+        })
       );
       return res.json(events);
     }
@@ -168,9 +206,16 @@ router.get("/", authenticate, async (req, res) => {
         .where("createdBy", "==", String(createdBy))
         .limit(limit)
         .get();
-      const events = snapshot.docs.map((doc) => ({
-        id: doc.id, ...doc.data(), rating: 0, reviewCount: 0,
-      }));
+      const events = snapshot.docs.map((doc) => {
+        const data = doc.data() || {};
+        return {
+          id: doc.id,
+          ...data,
+          imageUrl: pickEventImage(data),
+          rating: 0,
+          reviewCount: 0,
+        };
+      });
       return res.json(events);
     }
 
@@ -194,13 +239,17 @@ router.get("/", authenticate, async (req, res) => {
     const needsPostFilter = !!search || !!startDateIso || !!endDateIso;
     const fetchLimit = needsPostFilter ? Math.min(limit * 6, 500) : limit;
     const snapshot = await query.limit(fetchLimit).get();
-    let events = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      // rating/reviewCount are computed on the detail endpoint now.
-      rating: 0,
-      reviewCount: 0,
-    }));
+    let events = snapshot.docs.map((doc) => {
+      const data = doc.data() || {};
+      return {
+        id: doc.id,
+        ...data,
+        imageUrl: pickEventImage(data),
+        // rating/reviewCount are computed on the detail endpoint now.
+        rating: 0,
+        reviewCount: 0,
+      };
+    });
 
     if (startDateIso || endDateIso) {
       const startMs = startDateIso ? new Date(startDateIso).getTime() : null;
@@ -330,7 +379,14 @@ router.get("/:id", authenticate, async (req, res) => {
       }).catch(() => {});
     }
 
-    return res.json({ id: doc.id, ...doc.data(), ...stats });
+    const data = doc.data() || {};
+    const resolvedImageUrl = pickEventImage(data);
+    return res.json({
+      id: doc.id,
+      ...data,
+      imageUrl: resolvedImageUrl,
+      ...stats,
+    });
   } catch (err) {
     console.error("GET /api/events/:id error:", err);
     return res.status(500).json({ error: "Failed to fetch event" });

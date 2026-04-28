@@ -44,6 +44,7 @@ export default function App() {
   const [messageRecipientId, setMessageRecipientId] = useState<string | undefined>(undefined);
   const [exploreInitialCategory, setExploreInitialCategory] = useState<string | undefined>(undefined);
   const [exploreInitialSearchQuery, setExploreInitialSearchQuery] = useState<string | undefined>(undefined);
+  const [authSessionKey, setAuthSessionKey] = useState(0);
   const prevUidRef = useRef<string | null | undefined>(undefined);
 
   const isAuthenticated = !!user;
@@ -51,6 +52,17 @@ export default function App() {
   const completeIntroSplash = useCallback(() => {
     introSplashCompleted = true;
     setIsLoading(false);
+  }, []);
+
+  const resetToHomeForLogin = useCallback(() => {
+    setShowSignUp(false);
+    setCurrentPage('home');
+    setSelectedEventId('');
+    setSelectedFriendName('');
+    setPostedEventName('');
+    setExploreInitialCategory(undefined);
+    setExploreInitialSearchQuery(undefined);
+    setAuthSessionKey((prev) => prev + 1);
   }, []);
 
   useEffect(() => {
@@ -80,6 +92,15 @@ export default function App() {
 
   useEffect(() => {
     const uid = user?.uid ?? null;
+    const previousUid = prevUidRef.current;
+    const isInitialSavedLogin = previousUid === undefined && uid !== null;
+    const isFreshLogin = previousUid === null && uid !== null;
+    const isLoginTransition = isInitialSavedLogin || isFreshLogin;
+
+    if (isLoginTransition) {
+      resetToHomeForLogin();
+    }
+
     if (prevUidRef.current === undefined) {
       prevUidRef.current = uid;
       return;
@@ -90,10 +111,12 @@ export default function App() {
       setSelectedEventId('');
       setSelectedFriendName('');
       setPostedEventName('');
+      setExploreInitialCategory(undefined);
+      setExploreInitialSearchQuery(undefined);
       void AsyncStorage.removeItem(NAV_STATE_KEY);
     }
     prevUidRef.current = uid;
-  }, [user]);
+  }, [user, resetToHomeForLogin]);
 
   useEffect(() => {
     if (!navHydrated || !user) return;
@@ -109,10 +132,6 @@ export default function App() {
   }, [navHydrated, user, currentPage, selectedEventId, selectedFriendName, postedEventName]);
 
   const handleNavigate = (page: string, param?: string, options?: any) => {
-    if (__DEV__) {
-      // eslint-disable-next-line no-console
-      console.log('handleNavigate called:', page, param, options);
-    }
     // Be explicit: an empty/whitespace route is a bug and should be surfaced.
     if (typeof page !== 'string' || page.trim().length === 0) {
       throw new Error(`handleNavigate received an invalid page: ${JSON.stringify(page)}`);
@@ -213,6 +232,7 @@ export default function App() {
             pointerEvents={currentPage === 'home' ? 'auto' : 'none'}
           >
             <HomePage
+              key={`home-${user?.uid ?? 'anon'}-${authSessionKey}`}
               onNavigate={handleNavigate}
               onSignOut={handleSignOut}
               onOpenMessages={() => handleNavigate('messages')}
@@ -225,6 +245,7 @@ export default function App() {
             pointerEvents={currentPage === 'explore' ? 'auto' : 'none'}
           >
             <ExplorePage
+              key={`explore-${user?.uid ?? 'anon'}-${authSessionKey}`}
               onNavigate={handleNavigate}
               initialCategory={exploreInitialCategory}
               initialSearchQuery={exploreInitialSearchQuery}

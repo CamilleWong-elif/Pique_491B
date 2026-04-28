@@ -3,7 +3,6 @@ import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
-  Image,
   StyleSheet,
   TouchableOpacity,
   Pressable,
@@ -17,6 +16,7 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
+import { Image as ExpoImage } from "expo-image";
 import { useAuth } from "@/context/AuthContext";
 import {
   apiGetActivityComments,
@@ -401,7 +401,7 @@ export function SocialActivityCard({
                   }}
                   renderItem={({ item }) => (
                     <View style={styles.modalImageWrap}>
-                      <Image source={{ uri: item }} style={styles.modalImage} resizeMode="contain" />
+                      <ExpoImage source={{ uri: item }} style={styles.modalImage} contentFit="contain" />
                     </View>
                   )}
                 />
@@ -424,7 +424,7 @@ export function SocialActivityCard({
                     <View style={styles.modalUserRow}>
                       <View style={styles.avatarFallback}>
                         {activity.userAvatar ? (
-                          <Image source={{ uri: activity.userAvatar }} style={styles.modalAvatar} />
+                          <ExpoImage source={{ uri: activity.userAvatar }} style={styles.modalAvatar} />
                         ) : (
                           <Text style={styles.modalAvatarText}>
                             {activity.userName.slice(0, 2).toUpperCase()}
@@ -503,7 +503,7 @@ export function SocialActivityCard({
                     }}
                   >
                     {item.userAvatar ? (
-                      <Image source={{ uri: item.userAvatar }} style={styles.likerAvatar} />
+                      <ExpoImage source={{ uri: item.userAvatar }} style={styles.likerAvatar} />
                     ) : (
                       <View style={styles.likerAvatarFallback}>
                         <Text style={styles.likerAvatarText}>{item.userName.slice(0, 2).toUpperCase()}</Text>
@@ -559,7 +559,7 @@ export function SocialActivityCard({
                           }}
                         >
                           {c.userAvatar ? (
-                            <Image source={{ uri: c.userAvatar }} style={styles.modalCommentAvatar} />
+                            <ExpoImage source={{ uri: c.userAvatar }} style={styles.modalCommentAvatar} />
                           ) : (
                             <View style={styles.modalCommentAvatarFb}>
                               <Text style={styles.modalCommentAvatarTxt}>{c.userName.slice(0, 2).toUpperCase()}</Text>
@@ -580,7 +580,7 @@ export function SocialActivityCard({
               <View style={styles.commentInputRow}>
                 <View style={styles.youAvatar}>
                   {profile?.avatarDataUrl || profile?.photoURL ? (
-                    <Image
+                    <ExpoImage
                       source={{ uri: (profile.avatarDataUrl || profile.photoURL) as string }}
                       style={styles.youAvatarImg}
                     />
@@ -621,7 +621,7 @@ export function SocialActivityCard({
           style={styles.avatarWrap}
         >
           {activity.userAvatar ? (
-            <Image source={{ uri: activity.userAvatar }} style={styles.avatar} />
+            <ExpoImage source={{ uri: activity.userAvatar }} style={styles.avatar} />
           ) : (
             <View style={styles.avatarFallback}>
               <Text style={styles.avatarFallbackText}>
@@ -675,7 +675,7 @@ export function SocialActivityCard({
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imagesRow}>
               {activity.reviewImages.map((img, idx) => (
                 <TouchableOpacity key={idx} onPress={() => openGallery(idx)} style={styles.thumbWrap}>
-                  <Image source={{ uri: img }} style={styles.thumb} />
+                  <ExpoImage source={{ uri: img }} style={styles.thumb} />
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -766,7 +766,7 @@ export function SocialActivityCard({
                         style={styles.commentAvatarWrap}
                       >
                         {c.userAvatar ? (
-                          <Image source={{ uri: c.userAvatar }} style={styles.commentAvatar} />
+                          <ExpoImage source={{ uri: c.userAvatar }} style={styles.commentAvatar} />
                         ) : (
                           <View style={styles.commentAvatarFallback}>
                             <Text style={styles.commentAvatarText}>{c.userName.slice(0, 2).toUpperCase()}</Text>
@@ -824,7 +824,7 @@ export function SocialActivityCard({
               <View style={styles.commentInputRow}>
                 <View style={styles.youAvatar}>
                   {profile?.avatarDataUrl || profile?.photoURL ? (
-                    <Image
+                    <ExpoImage
                       source={{ uri: (profile.avatarDataUrl || profile.photoURL) as string }}
                       style={styles.youAvatarImg}
                     />

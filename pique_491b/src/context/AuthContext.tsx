@@ -48,6 +48,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      setLoading(true);
+
       const profileRef = doc(db, 'users', firebaseUser.uid);
       const unsub = onSnapshot(
         profileRef,
@@ -60,16 +62,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               photoURL: firebaseUser.photoURL ?? undefined,
             });
           }
+          setLoading(false);
         },
         () => {
           setProfile({
             displayName: firebaseUser.displayName ?? undefined,
             photoURL: firebaseUser.photoURL ?? undefined,
           });
+          setLoading(false);
         }
       );
       profileUnsubRef.current = unsub;
-      setLoading(false);
     });
 
     return () => {

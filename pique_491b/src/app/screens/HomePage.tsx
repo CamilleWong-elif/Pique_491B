@@ -518,7 +518,11 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
                       event={{
                         id: event.id,
                         name: event.name ?? '',
-                        imageUrl: event.imageUrl ?? event.image,
+                        imageUrl:
+                          event.imageUrl ??
+                          event.image ??
+                          (Array.isArray(event.imageUrls) ? event.imageUrls[0] : undefined) ??
+                          (Array.isArray(event.photos) ? event.photos[0] : undefined),
                         startDate: startDateStr ?? event.startDate,
                         endDate: event.endDate,
                         category: event.category ?? (Array.isArray(event.categories) ? event.categories[0] : undefined),

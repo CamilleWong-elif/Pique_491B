@@ -9,7 +9,6 @@ import {
   Pressable,
   Dimensions,
   Modal,
-  Image,
   FlatList,
   ActivityIndicator,
   NativeScrollEvent,
@@ -19,6 +18,7 @@ import {
   Linking,
   Alert,
 } from "react-native";
+import { Image as ExpoImage } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ArrowLeft,
@@ -39,6 +39,7 @@ export type Event = {
   id: string;
   name: string;
   imageUrl: string;
+  imageUrls?: string[];
   /** Raw Firestore shapes: strings, or objects with url/uri and optional userName/name */
   userImages?: unknown[];
   startDate?: string;
@@ -108,6 +109,58 @@ function normalizeUserImages(raw: unknown): UserImage[] {
   return out;
 }
 
+function normalizeImageUrl(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  if (trimmed.startsWith("http://")) return `https://${trimmed.slice("http://".length)}`;
+  return trimmed;
+}
+
+function pickPrimaryImage(doc: Record<string, any>): string {
+  const direct = normalizeImageUrl(doc.imageUrl ?? doc.image);
+  if (direct) return direct;
+  if (Array.isArray(doc.imageUrls)) {
+    for (const candidate of doc.imageUrls) {
+      const normalized = normalizeImageUrl(candidate);
+      if (normalized) return normalized;
+    }
+  }
+  if (Array.isArray(doc.photos)) {
+    for (const candidate of doc.photos) {
+      const fromString = normalizeImageUrl(candidate);
+      if (fromString) return fromString;
+      const fromObject = normalizeImageUrl(candidate?.url ?? candidate?.uri ?? candidate?.src);
+      if (fromObject) return fromObject;
+    }
+  }
+  return "";
+}
+
+function collectGalleryImages(doc: Record<string, any>): UserImage[] {
+  const candidates: UserImage[] = [];
+  const seen = new Set<string>();
+  const add = (rawUrl: unknown, userName = "Event Photo") => {
+    const url = normalizeImageUrl(rawUrl);
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    candidates.push({ url, userName });
+  };
+
+  add(doc.imageUrl ?? doc.image, "Event Creator");
+  if (Array.isArray(doc.imageUrls)) {
+    doc.imageUrls.forEach((u: unknown) => add(u, "Event Photo"));
+  }
+  if (Array.isArray(doc.photos)) {
+    doc.photos.forEach((item: any) => {
+      add(item, "Event Photo");
+      add(item?.url ?? item?.uri ?? item?.src, item?.userName ?? item?.name ?? "Event Photo");
+    });
+  }
+  return candidates;
+}
+
 /** Map a raw Firestore document to the local Event shape. */
 function mapFirestoreToEvent(id: string, d: Record<string, any>): Event {
   const toDateStr = (value: any): string | undefined => {
@@ -124,8 +177,9 @@ function mapFirestoreToEvent(id: string, d: Record<string, any>): Event {
   return {
     id,
     name: d.name ?? "Untitled Event",
-    imageUrl: d.imageUrl ?? d.image ?? "",
-    userImages: Array.isArray(d.userImages) ? d.userImages : [],
+    imageUrl: pickPrimaryImage(d),
+    imageUrls: Array.isArray(d.imageUrls) ? d.imageUrls : [],
+    userImages: Array.isArray(d.userImages) ? d.userImages : collectGalleryImages(d),
     startDate: toDateStr(d.startDate ?? d.date),
     endDate: toDateStr(d.endDate),
     city,
@@ -191,20 +245,31 @@ export function EventDetailScreen({
     setIsBookmarked(liked.includes(eventId));
   }, [eventId, profile?.likedEvents]);
 
-  const allImages = useMemo((): UserImage[] => {
-    if (!event) return [];
-    const primary = (event.imageUrl ?? "").trim();
-    const fromCreator: UserImage[] = primary
-      ? [{ url: primary, userName: "Event Creator" }]
-      : [];
-    const userImgs = normalizeUserImages(event.userImages);
-    return [...fromCreator, ...userImgs];
-  }, [event]);
-
   const [currentSlide, setCurrentSlide] = useState(0);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [whiteBackdrop, setWhiteBackdrop] = useState(true);
+  const [brokenImageUrls, setBrokenImageUrls] = useState<Set<string>>(new Set());
+
+  const allImages = useMemo((): UserImage[] => {
+    if (!event) return [];
+    const primary = normalizeImageUrl(event.imageUrl);
+    const fromCreator: UserImage[] = primary
+      ? [{ url: primary, userName: "Event Creator" }]
+      : [];
+    const userImgs = normalizeUserImages(event.userImages).map((img) => ({
+      ...img,
+      url: normalizeImageUrl(img.url),
+    }));
+    const unique: UserImage[] = [];
+    const seen = new Set<string>();
+    [...fromCreator, ...userImgs].forEach((img) => {
+      if (!img.url || seen.has(img.url) || brokenImageUrls.has(img.url)) return;
+      seen.add(img.url);
+      unique.push(img);
+    });
+    return unique;
+  }, [event, brokenImageUrls]);
 
   const heroPagerRef = useRef<FlatList<{ url: string; userName: string }>>(null);
   const galleryPagerRef = useRef<FlatList<{ url: string; userName: string }>>(null);
@@ -496,10 +561,17 @@ export function EventDetailScreen({
               onMomentumScrollEnd={onGalleryScrollEnd}
               renderItem={({ item }) => (
                 <View style={styles.gallerySlide}>
-                  <Image
+                  <ExpoImage
                     source={{ uri: item.url }}
-                    resizeMode="contain"
+                    contentFit="contain"
                     style={styles.galleryImage}
+                    onError={() =>
+                      setBrokenImageUrls((prev) => {
+                        const next = new Set(prev);
+                        next.add(item.url);
+                        return next;
+                      })
+                    }
                   />
                 </View>
               )}
@@ -554,7 +626,18 @@ export function EventDetailScreen({
                 showsHorizontalScrollIndicator={false}
                 onMomentumScrollEnd={onHeroScrollEnd}
                 renderItem={({ item }) => (
-                  <Image source={{ uri: item.url }} style={styles.heroImage} resizeMode="cover" />
+                  <ExpoImage
+                    source={{ uri: item.url }}
+                    style={styles.heroImage}
+                    contentFit="cover"
+                    onError={() =>
+                      setBrokenImageUrls((prev) => {
+                        const next = new Set(prev);
+                        next.add(item.url);
+                        return next;
+                      })
+                    }
+                  />
                 )}
                 getItemLayout={(_, index) => ({
                   length: SCREEN_W,
