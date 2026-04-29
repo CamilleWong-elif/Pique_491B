@@ -77,6 +77,32 @@ const MAX_GEOCODE_PER_PASS = 8;
 const RECENTER_FALLBACK_LAT_DELTA = 0.05;
 const RECENTER_TOP_UI_APPROX_HEIGHT = 124; // top padding + search card + spacing
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
+const SEARCH_INTENT_RULES: Array<{ keywords: string[]; categoryTerms: string[] }> = [
+  {
+    keywords: ['feat', 'featuring', 'concert', 'music', 'band', 'artist', 'dj', 'tour', 'gig', 'show'],
+    categoryTerms: ['music', 'concert', 'entertainment', 'live'],
+  },
+  {
+    keywords: ['comedy', 'standup', 'laugh', 'comic'],
+    categoryTerms: ['comedy', 'entertainment'],
+  },
+  {
+    keywords: ['dance', 'party', 'club'],
+    categoryTerms: ['dance', 'entertainment'],
+  },
+  {
+    keywords: ['museum', 'art', 'culture', 'gallery', 'theater'],
+    categoryTerms: ['arts', 'culture', 'museum', 'theater'],
+  },
+  {
+    keywords: ['yoga', 'fitness', 'wellness', 'health'],
+    categoryTerms: ['wellness', 'fitness', 'yoga'],
+  },
+];
+const SEARCH_STOP_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from',
+  'in', 'is', 'it', 'of', 'on', 'or', 'the', 'to', 'with',
+]);
 
 const eventQueryCache = new Map<string, { ts: number; events: any[] }>();
 
@@ -85,6 +111,51 @@ function toIsoDateOnly(value: Date): string {
   const m = String(value.getMonth() + 1).padStart(2, '0');
   const d = String(value.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+function normalizeSearchString(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildBigrams(value: string): string[] {
+  if (value.length < 2) return [value];
+  const out: string[] = [];
+  for (let i = 0; i < value.length - 1; i += 1) {
+    out.push(value.slice(i, i + 2));
+  }
+  return out;
+}
+
+function diceSimilarity(a: string, b: string): number {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const aBigrams = buildBigrams(a);
+  const bBigrams = buildBigrams(b);
+  const bCounts = new Map<string, number>();
+  for (const bi of bBigrams) bCounts.set(bi, (bCounts.get(bi) ?? 0) + 1);
+  let overlap = 0;
+  for (const bi of aBigrams) {
+    const count = bCounts.get(bi) ?? 0;
+    if (count > 0) {
+      overlap += 1;
+      bCounts.set(bi, count - 1);
+    }
+  }
+  return (2 * overlap) / (aBigrams.length + bBigrams.length);
+}
+
+function isLikelyUsernameQuery(value: string): boolean {
+  const q = value.trim();
+  if (!q) return false;
+  if (q.includes(' ')) return false;
+  const normalized = q.startsWith('@') ? q.slice(1) : q;
+  if (normalized.length < 3 || normalized.length > 32) return false;
+  if (!/^[a-zA-Z0-9_.]+$/.test(normalized)) return false;
+  return /[a-zA-Z]/.test(normalized);
 }
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -137,6 +208,7 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
   const [appliedStartDate, setAppliedStartDate] = useState<Date | null>(null);
   const [appliedEndDate, setAppliedEndDate] = useState<Date | null>(null);
   const [appliedSortOrder, setAppliedSortOrder] = useState<'soonest' | 'latest'>('soonest');
+  const showFindPeopleHint = isLikelyUsernameQuery(searchQuery);
 
   const isFiltered = appliedCategories.length > 0 || appliedQuickDate !== null || appliedStartDate !== null || appliedEndDate !== null;
   const isMeetInMiddleLoading = isEventsLoading || loading || !isLocationResolved;
@@ -641,7 +713,9 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
       return calculateDistance(userLocation.lat, userLocation.lng, coords.lat, coords.lng) <= IN_RANGE_DISTANCE_MILES;
     };
 
-    const normalizedQuery = committedSearchQuery.trim().toLowerCase();
+    const normalizedQuery = normalizeSearchString(committedSearchQuery.trim());
+    const queryTokens = normalizedQuery.split(' ').filter(Boolean);
+    const meaningfulQueryTokens = queryTokens.filter((token) => !SEARCH_STOP_WORDS.has(token) && token.length > 1);
 
     const eventsWithoutFood = events.filter((event: any) => event.category !== 'Food & Drink');
     const eventsByCategory = appliedCategories.length === 0
@@ -649,18 +723,119 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
       : eventsWithoutFood.filter((event: any) => appliedCategories.includes(event.category));
 
     const eventsBySearch = normalizedQuery
-      ? eventsByCategory.filter((event: any) => {
-          const name = String(event.name || '').toLowerCase();
-          const city = String(event.city || '').toLowerCase();
-          const state = String(event.state || '').toLowerCase();
-          const category = String(event.category || '').toLowerCase();
-          return (
-            name.includes(normalizedQuery) ||
-            city.includes(normalizedQuery) ||
-            state.includes(normalizedQuery) ||
-            category.includes(normalizedQuery)
-          );
-        })
+      ? (() => {
+          const directMatches = eventsByCategory.filter((event: any) => {
+            const name = normalizeSearchString(String(event.name || ''));
+            const city = normalizeSearchString(String(event.city || ''));
+            const state = normalizeSearchString(String(event.state || ''));
+            const category = normalizeSearchString(String(event.category || ''));
+            return (
+              name.includes(normalizedQuery) ||
+              city.includes(normalizedQuery) ||
+              state.includes(normalizedQuery) ||
+              category.includes(normalizedQuery)
+            );
+          });
+          if (directMatches.length > 0) return directMatches;
+
+          const inferredCategoryTerms = new Set<string>();
+          SEARCH_INTENT_RULES.forEach((rule) => {
+            const hasKeywordMatch = rule.keywords.some((keyword) =>
+              queryTokens.some((token) => token.includes(keyword) || keyword.includes(token))
+            );
+            if (!hasKeywordMatch) return;
+            rule.categoryTerms.forEach((term) => inferredCategoryTerms.add(term));
+          });
+
+          const scored = eventsByCategory
+            .map((event: any) => {
+              const name = normalizeSearchString(String(event?.name || ''));
+              const city = normalizeSearchString(String(event?.city || ''));
+              const state = normalizeSearchString(String(event?.state || ''));
+              const categories = [
+                normalizeSearchString(String(event?.category || '')),
+                ...(Array.isArray(event?.categories)
+                  ? event.categories.map((cat: any) => normalizeSearchString(String(cat || '')))
+                  : []),
+              ].filter(Boolean);
+              const categoryBlob = categories.join(' ');
+              const nameSimilarity = diceSimilarity(normalizedQuery, name);
+              const categorySimilarity = categories.length > 0
+                ? Math.max(...categories.map((cat) => diceSimilarity(normalizedQuery, cat)))
+                : 0;
+              const tokenCoverage = queryTokens.length > 0
+                ? queryTokens.filter((token) =>
+                    name.includes(token) ||
+                    city.includes(token) ||
+                    state.includes(token) ||
+                    categoryBlob.includes(token)
+                  ).length / queryTokens.length
+                : 0;
+              const meaningfulTokenCoverage = meaningfulQueryTokens.length > 0
+                ? meaningfulQueryTokens.filter((token) =>
+                    name.includes(token) ||
+                    city.includes(token) ||
+                    state.includes(token) ||
+                    categoryBlob.includes(token)
+                  ).length / meaningfulQueryTokens.length
+                : tokenCoverage;
+              const categoryIntentBoost = inferredCategoryTerms.size > 0 &&
+                Array.from(inferredCategoryTerms).some((term) => categoryBlob.includes(term))
+                ? 0.55
+                : 0;
+              const score =
+                (nameSimilarity * 0.65) +
+                (categorySimilarity * 0.35) +
+                (tokenCoverage * 0.25) +
+                (meaningfulTokenCoverage * 0.35) +
+                categoryIntentBoost;
+              const hasMeaningfulTextOverlap = meaningfulQueryTokens.length === 0
+                ? tokenCoverage > 0
+                : meaningfulQueryTokens.some((token) =>
+                    name.includes(token) ||
+                    city.includes(token) ||
+                    state.includes(token) ||
+                    categoryBlob.includes(token)
+                  );
+              return { event, score, categoryBlob, hasMeaningfulTextOverlap, nameSimilarity };
+            })
+            .filter((row) => {
+              const passesScore = row.score >= 0.62 || (inferredCategoryTerms.size > 0 && row.score >= 0.45);
+              if (!passesScore) return false;
+              // Guard against intent over-matching (e.g. unrelated comedy events).
+              if (row.hasMeaningfulTextOverlap) return true;
+              return row.nameSimilarity >= 0.78; // allow strong typo-level name similarity
+            })
+            .sort((a, b) => b.score - a.score);
+
+          if (scored.length > 0) return scored.map((row) => row.event);
+
+          if (inferredCategoryTerms.size > 0) {
+            const intentFallback = eventsByCategory.filter((event: any) => {
+              const categoryBlob = [
+                normalizeSearchString(String(event?.category || '')),
+                ...(Array.isArray(event?.categories)
+                  ? event.categories.map((cat: any) => normalizeSearchString(String(cat || '')))
+                  : []),
+              ].join(' ');
+              const name = normalizeSearchString(String(event?.name || ''));
+              const city = normalizeSearchString(String(event?.city || ''));
+              const state = normalizeSearchString(String(event?.state || ''));
+              const matchesIntentCategory = Array.from(inferredCategoryTerms).some((term) => categoryBlob.includes(term));
+              if (!matchesIntentCategory) return false;
+              if (meaningfulQueryTokens.length === 0) return true;
+              return meaningfulQueryTokens.some((token) =>
+                name.includes(token) ||
+                city.includes(token) ||
+                state.includes(token) ||
+                categoryBlob.includes(token)
+              );
+            });
+            if (intentFallback.length > 0) return intentFallback;
+          }
+
+          return [];
+        })()
       : eventsByCategory;
 
     const now = new Date();
@@ -1084,6 +1259,21 @@ export function ExplorePage({ onNavigate, onOpenMessages, unreadMessageCount, in
             {isFiltered && <View style={styles.filterActiveDot} />}
           </TouchableOpacity>
         </View>
+
+        {showFindPeopleHint ? (
+          <View style={styles.findPeopleHintWrap}>
+            <Text style={styles.findPeopleHintText}>
+              Looking for a user? Try{' '}
+              <Text
+                style={styles.findPeopleHintLink}
+                onPress={() => onNavigate('leaderboard', undefined, { tab: 'find' })}
+              >
+                finding people
+              </Text>{' '}
+              in the Community page!
+            </Text>
+          </View>
+        ) : null}
 
       </View>
 
@@ -1592,6 +1782,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#3b82f6',
     borderWidth: 1.5,
     borderColor: '#ffffff',
+  },
+  findPeopleHintWrap: {
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#93c5fd',
+    borderRadius: 10,
+    backgroundColor: '#eff6ff',
+  },
+  findPeopleHintText: {
+    fontSize: 12,
+    color: '#1e3a8a',
+    lineHeight: 17,
+  },
+  findPeopleHintLink: {
+    fontSize: 12,
+    color: '#2563eb',
+    fontWeight: '700',
+    marginHorizontal: 1,
+    lineHeight: 17,
   },
   categoriesContent: {
     gap: 12,

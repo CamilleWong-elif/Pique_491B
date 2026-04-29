@@ -1,5 +1,6 @@
 // SearchOverlay.tsx (React Native)
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { apiGetEvents } from "@/api";
 import { ArrowLeft, MapPin, Mic, Search, X } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
@@ -7,21 +8,99 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const RECENT_SEARCHES_KEY = "@pique_recent_searches";
 const MAX_RECENT_SEARCHES = 8;
+const EVENT_SUGGESTION_FETCH_LIMIT = 120;
+const MAX_EVENT_SUGGESTION_POOL = 200;
+const MAX_SEARCH_SUGGESTIONS = 6;
+
+type IntentRule = {
+  keywords: string[];
+  suggestions: string[];
+};
+
+const INTENT_RULES: IntentRule[] = [
+  {
+    keywords: ["feat", "featuring", "concert", "music", "band", "artist", "dj", "tour", "gig", "show"],
+    suggestions: ["Live Music", "Outdoor Concerts", "Entertainment"],
+  },
+  {
+    keywords: ["comedy", "standup", "laugh", "comic"],
+    suggestions: ["Comedy Shows", "Entertainment"],
+  },
+  {
+    keywords: ["dance", "party", "club"],
+    suggestions: ["Dance Classes", "Entertainment"],
+  },
+  {
+    keywords: ["museum", "art", "culture", "gallery", "theater"],
+    suggestions: ["Arts & Culture", "Museum Tours", "Theater Performances"],
+  },
+  {
+    keywords: ["yoga", "fitness", "wellness", "health"],
+    suggestions: ["Wellness", "Fitness Bootcamp", "Outdoor Yoga Classes"],
+  },
+];
+
+function normalizeForCompare(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildBigrams(value: string): string[] {
+  if (value.length < 2) return [value];
+  const out: string[] = [];
+  for (let i = 0; i < value.length - 1; i += 1) {
+    out.push(value.slice(i, i + 2));
+  }
+  return out;
+}
+
+function diceSimilarity(a: string, b: string): number {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const aBigrams = buildBigrams(a);
+  const bBigrams = buildBigrams(b);
+  const bCounts = new Map<string, number>();
+  for (const bi of bBigrams) bCounts.set(bi, (bCounts.get(bi) ?? 0) + 1);
+  let overlap = 0;
+  for (const bi of aBigrams) {
+    const count = bCounts.get(bi) ?? 0;
+    if (count > 0) {
+      overlap += 1;
+      bCounts.set(bi, count - 1);
+    }
+  }
+  return (2 * overlap) / (aBigrams.length + bBigrams.length);
+}
 
 type Props = {
   isOpen: boolean;
   onClose: () => void;
   initialQuery: string;
   onNavigateToExplore: (category: string) => void;
+  onNavigateToFindPeople?: () => void;
   location?: string;
   onLocationChange?: (location: string) => void;
 };
+
+function isLikelyUsernameQuery(value: string): boolean {
+  const q = value.trim();
+  if (!q) return false;
+  if (q.includes(" ")) return false;
+  const normalized = q.startsWith("@") ? q.slice(1) : q;
+  if (normalized.length < 3 || normalized.length > 32) return false;
+  if (!/^[a-zA-Z0-9_.]+$/.test(normalized)) return false;
+  return /[a-zA-Z]/.test(normalized);
+}
 
 export function SearchOverlay({
   isOpen,
   onClose,
   initialQuery,
   onNavigateToExplore,
+  onNavigateToFindPeople,
   location: propLocation,
   onLocationChange,
 }: Props) {
@@ -64,12 +143,78 @@ export function SearchOverlay({
   );
 
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [eventNameSuggestions, setEventNameSuggestions] = useState<string[]>([]);
+  const [eventCategorySuggestions, setEventCategorySuggestions] = useState<string[]>([]);
 
   useEffect(() => {
     if (!isOpen) return;
     AsyncStorage.getItem(RECENT_SEARCHES_KEY).then((raw) => {
       if (raw) setRecentSearches(JSON.parse(raw));
     }).catch(() => {});
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+
+    const loadEventSuggestions = async () => {
+      try {
+        const response = await apiGetEvents({ limit: EVENT_SUGGESTION_FETCH_LIMIT, withCursor: true });
+        const events = Array.isArray((response as any)?.events)
+          ? (response as any).events
+          : (Array.isArray(response) ? response : []);
+        const seen = new Set<string>();
+        const names: string[] = [];
+        const categorySeen = new Set<string>();
+        const categories: string[] = [];
+
+        for (const event of events) {
+          const rawName = String(event?.name ?? "").trim();
+          if (!rawName) continue;
+          const key = rawName.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          names.push(rawName);
+
+          const rawCategory = String(event?.category ?? "").trim();
+          if (rawCategory) {
+            const catKey = rawCategory.toLowerCase();
+            if (!categorySeen.has(catKey)) {
+              categorySeen.add(catKey);
+              categories.push(rawCategory);
+            }
+          }
+
+          if (Array.isArray(event?.categories)) {
+            for (const rawCat of event.categories) {
+              const nextCategory = String(rawCat ?? "").trim();
+              if (!nextCategory) continue;
+              const catKey = nextCategory.toLowerCase();
+              if (categorySeen.has(catKey)) continue;
+              categorySeen.add(catKey);
+              categories.push(nextCategory);
+            }
+          }
+
+          if (names.length >= MAX_EVENT_SUGGESTION_POOL) break;
+        }
+
+        if (!cancelled) {
+          setEventNameSuggestions(names);
+          setEventCategorySuggestions(categories);
+        }
+      } catch {
+        if (!cancelled) {
+          setEventNameSuggestions([]);
+          setEventCategorySuggestions([]);
+        }
+      }
+    };
+
+    loadEventSuggestions();
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
 
   const saveSearch = useCallback((query: string) => {
@@ -80,9 +225,14 @@ export function SearchOverlay({
     });
   }, []);
 
+  const clearRecentSearches = useCallback(() => {
+    setRecentSearches([]);
+    AsyncStorage.removeItem(RECENT_SEARCHES_KEY).catch(() => {});
+  }, []);
+
   const suggestions = useMemo(() => {
     if (!searchText.trim()) return [];
-    const allSuggestions = [
+    const categorySuggestions = [
       "Outdoor Activities",
       "Outdoor Yoga Classes",
       "Outdoor Concerts",
@@ -103,10 +253,83 @@ export function SearchOverlay({
       "Wine Tasting",
       "Cooking Classes",
       "Photography Walks",
+      ...quickActions,
+      ...eventCategorySuggestions,
     ];
-    const q = searchText.toLowerCase();
-    return allSuggestions.filter((s) => s.toLowerCase().includes(q)).slice(0, 6);
-  }, [searchText]);
+    const q = searchText.trim();
+    const normalizedQuery = normalizeForCompare(q);
+    const queryTokens = normalizedQuery.split(" ").filter(Boolean);
+    const rankByMatchQuality = (value: string): number => {
+      const normalizedValue = normalizeForCompare(value);
+      if (normalizedValue.startsWith(normalizedQuery)) return 0;
+      if (normalizedValue.includes(` ${normalizedQuery}`)) return 1;
+      return 2;
+    };
+    const scoreSuggestion = (value: string): number => {
+      const normalizedValue = normalizeForCompare(value);
+      if (!normalizedValue) return 0;
+      let score = 0;
+      if (normalizedValue.startsWith(normalizedQuery)) score += 1;
+      if (normalizedValue.includes(normalizedQuery)) score += 0.55;
+      const tokenHits = queryTokens.filter((token) => normalizedValue.includes(token)).length;
+      if (queryTokens.length > 0) score += (tokenHits / queryTokens.length) * 0.45;
+      score += diceSimilarity(normalizedQuery, normalizedValue) * 0.7;
+      return score;
+    };
+    const byRelevance = (a: string, b: string) => {
+      const scoreDiff = scoreSuggestion(b) - scoreSuggestion(a);
+      if (Math.abs(scoreDiff) > 0.0001) return scoreDiff;
+      const rankDiff = rankByMatchQuality(a) - rankByMatchQuality(b);
+      if (rankDiff !== 0) return rankDiff;
+      const lengthDiff = a.length - b.length;
+      if (lengthDiff !== 0) return lengthDiff;
+      return a.localeCompare(b);
+    };
+    const matchingEventNames = eventNameSuggestions
+      .filter((name) => normalizeForCompare(name).includes(normalizedQuery))
+      .sort(byRelevance);
+    const matchingCategories = categorySuggestions
+      .filter((suggestion) => normalizeForCompare(suggestion).includes(normalizedQuery))
+      .sort(byRelevance);
+    const inferredIntentSuggestions = INTENT_RULES
+      .filter((rule) =>
+        rule.keywords.some((keyword) => queryTokens.some((token) => token.includes(keyword) || keyword.includes(token)))
+      )
+      .flatMap((rule) => rule.suggestions);
+    const fuzzyEventNames = eventNameSuggestions
+      .filter((name) => !normalizeForCompare(name).includes(normalizedQuery))
+      .map((name) => ({ name, score: scoreSuggestion(name) }))
+      .filter((row) => row.score >= 0.52)
+      .sort((a, b) => b.score - a.score)
+      .map((row) => row.name);
+    const fuzzyCategories = categorySuggestions
+      .filter((suggestion) => !normalizeForCompare(suggestion).includes(normalizedQuery))
+      .map((suggestion) => ({ suggestion, score: scoreSuggestion(suggestion) }))
+      .filter((row) => row.score >= 0.46)
+      .sort((a, b) => b.score - a.score)
+      .map((row) => row.suggestion);
+
+    const combined: string[] = [];
+    const seen = new Set<string>();
+    for (const suggestion of [
+      ...matchingEventNames,
+      ...matchingCategories,
+      ...inferredIntentSuggestions,
+      ...fuzzyEventNames,
+      ...fuzzyCategories,
+    ]) {
+      const key = suggestion.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      combined.push(suggestion);
+      if (combined.length >= MAX_SEARCH_SUGGESTIONS) break;
+    }
+    return combined;
+  }, [eventCategorySuggestions, eventNameSuggestions, quickActions, searchText]);
+  const showFindPeopleHint = useMemo(
+    () => !isLocationMode && isLikelyUsernameQuery(searchText),
+    [isLocationMode, searchText]
+  );
 
   const handleLocationSelect = (city: string, state: string) => {
     const next = `${city}, ${state}`;
@@ -277,6 +500,24 @@ export function SearchOverlay({
                 )}
 
                 {/* Suggestions */}
+                {showFindPeopleHint && (
+                  <View style={styles.findPeopleHintWrap}>
+                    <Text style={styles.findPeopleHintText}>
+                      Looking for a user? Try{" "}
+                      <Text
+                        style={styles.findPeopleHintLink}
+                        onPress={() => {
+                          onClose();
+                          onNavigateToFindPeople?.();
+                        }}
+                      >
+                        finding people
+                      </Text>{" "}
+                      in the Community page!
+                    </Text>
+                  </View>
+                )}
+
                 {suggestions.length > 0 && (
                   <View style={styles.section}>
                     <Text style={styles.sectionTitle}>SUGGESTIONS</Text>
@@ -298,7 +539,7 @@ export function SearchOverlay({
                   <View style={styles.section}>
                     <View style={styles.sectionHeaderRow}>
                       <Text style={styles.sectionTitle}>RECENTLY SEARCHED</Text>
-                      <TouchableOpacity>
+                      <TouchableOpacity onPress={clearRecentSearches}>
                         <Text style={styles.clearText}>Clear</Text>
                       </TouchableOpacity>
                     </View>
@@ -454,6 +695,29 @@ const styles = StyleSheet.create({
   suggestText: {
     fontSize: 14,
     color: "#111827",
+  },
+  findPeopleHintWrap: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "#93C5FD",
+    borderRadius: 10,
+    backgroundColor: "#EFF6FF",
+  },
+  findPeopleHintText: {
+    fontSize: 13,
+    color: "#1E3A8A",
+    lineHeight: 18,
+  },
+  findPeopleHintLink: {
+    fontSize: 13,
+    color: "#2563EB",
+    fontWeight: "700",
+    marginHorizontal: 1,
+    lineHeight: 18,
   },
   listRow: {
     flexDirection: "row",

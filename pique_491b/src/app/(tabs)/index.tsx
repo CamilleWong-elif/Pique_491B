@@ -44,6 +44,7 @@ export default function App() {
   const [messageRecipientId, setMessageRecipientId] = useState<string | undefined>(undefined);
   const [exploreInitialCategory, setExploreInitialCategory] = useState<string | undefined>(undefined);
   const [exploreInitialSearchQuery, setExploreInitialSearchQuery] = useState<string | undefined>(undefined);
+  const [communityInitialTab, setCommunityInitialTab] = useState<'leaderboard' | 'reviews' | 'find' | undefined>(undefined);
   const [authSessionKey, setAuthSessionKey] = useState(0);
   const prevUidRef = useRef<string | null | undefined>(undefined);
 
@@ -62,6 +63,7 @@ export default function App() {
     setPostedEventName('');
     setExploreInitialCategory(undefined);
     setExploreInitialSearchQuery(undefined);
+    setCommunityInitialTab(undefined);
     setAuthSessionKey((prev) => prev + 1);
   }, []);
 
@@ -113,6 +115,7 @@ export default function App() {
       setPostedEventName('');
       setExploreInitialCategory(undefined);
       setExploreInitialSearchQuery(undefined);
+      setCommunityInitialTab(undefined);
       void AsyncStorage.removeItem(NAV_STATE_KEY);
     }
     prevUidRef.current = uid;
@@ -145,6 +148,9 @@ export default function App() {
     if (page === 'explore') {
       setExploreInitialCategory(options?.category);
       setExploreInitialSearchQuery(options?.searchQuery);
+    }
+    if (page === 'leaderboard') {
+      setCommunityInitialTab(options?.tab);
     }
     setCurrentPage(page);
   };
@@ -257,7 +263,10 @@ export default function App() {
             style={[StyleSheet.absoluteFill, { zIndex: currentPage === 'leaderboard' ? 1 : 0, opacity: currentPage === 'leaderboard' ? 1 : 0 }]}
             pointerEvents={currentPage === 'leaderboard' ? 'auto' : 'none'}
           >
-            <CommunityPage onNavigate={handleNavigate} />
+            <CommunityPage
+              onNavigate={handleNavigate}
+              initialTab={communityInitialTab}
+            />
           </View>
         )}
         {showApp && !needsSurvey && (
