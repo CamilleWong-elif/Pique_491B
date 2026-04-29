@@ -1,6 +1,6 @@
 // NotificationsModal.tsx (React Native)
 import { Star, X } from "lucide-react-native";
-import React from "react";
+import React, { memo, useCallback } from "react";
 import { FlatList, Image, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -40,6 +40,69 @@ interface Props {
   onPressUser?: (notification: Notification) => void;
 }
 
+interface NotificationRowProps {
+  item: Notification;
+  onMarkAsRead: (notificationId: string) => void;
+  onPressUser?: (notification: Notification) => void;
+}
+
+const NotificationRow = memo(function NotificationRow({ item, onMarkAsRead, onPressUser }: NotificationRowProps) {
+  const initial = String(item.userName || "U").trim().slice(0, 1).toUpperCase() || "U";
+  const canOpenUser = Boolean(item.userId && onPressUser);
+  return (
+    <TouchableOpacity
+      activeOpacity={0.85}
+      onPress={() => onMarkAsRead(item.id)}
+      style={[styles.row, !item.read && styles.rowUnread]}
+    >
+      <View style={styles.rowInner}>
+        {/* Avatar or icon */}
+        <View style={styles.left}>
+          {item.userAvatar ? (
+            <View style={styles.avatarWrap}>
+              <Image
+                source={{ uri: item.userAvatar }}
+                style={styles.avatar}
+                resizeMode="cover"
+              />
+            </View>
+          ) : (
+            <View style={styles.avatarFallbackCircle}>
+              <Text style={styles.avatarFallbackText}>{initial}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Content */}
+        <View style={styles.content}>
+          <Text style={styles.message} numberOfLines={3}>
+            {!!item.userName && (
+              <Text
+                style={styles.userName}
+                onPress={canOpenUser ? () => onPressUser?.(item) : undefined}
+              >
+                {item.userName}{" "}
+              </Text>
+            )}
+            {item.message}
+          </Text>
+
+          {!!item.eventName && (
+            <Text style={styles.eventName} numberOfLines={1}>
+              {item.eventName}
+            </Text>
+          )}
+
+          <Text style={styles.timestamp}>{item.timestamp}</Text>
+        </View>
+
+        {/* Unread dot */}
+        {!item.read && <View style={styles.unreadDot} />}
+      </View>
+    </TouchableOpacity>
+  );
+});
+
 /**
  * Notes:
  * - Uses RN Modal + backdrop press to close.
@@ -50,62 +113,18 @@ export function NotificationsModal({ isOpen, onClose, notifications, onMarkAsRea
   const empty = notifications.length === 0;
   const insets = useSafeAreaInsets();
 
-  const renderItem = ({ item }: { item: Notification }) => {
-    const initial = String(item.userName || "U").trim().slice(0, 1).toUpperCase() || "U";
-    const canOpenUser = Boolean(item.userId && onPressUser);
-    return (
-      <TouchableOpacity
-        activeOpacity={0.85}
-        onPress={() => onMarkAsRead(item.id)}
-        style={[styles.row, !item.read && styles.rowUnread]}
-      >
-        <View style={styles.rowInner}>
-          {/* Avatar or icon */}
-          <View style={styles.left}>
-            {item.userAvatar ? (
-              <View style={styles.avatarWrap}>
-                <Image
-                  source={{ uri: item.userAvatar }}
-                  style={styles.avatar}
-                  resizeMode="cover"
-                />
-              </View>
-            ) : (
-              <View style={styles.avatarFallbackCircle}>
-                <Text style={styles.avatarFallbackText}>{initial}</Text>
-              </View>
-            )}
-          </View>
+  const renderItem = useCallback(
+    ({ item }: { item: Notification }) => (
+      <NotificationRow
+        item={item}
+        onMarkAsRead={onMarkAsRead}
+        onPressUser={onPressUser}
+      />
+    ),
+    [onMarkAsRead, onPressUser]
+  );
 
-          {/* Content */}
-          <View style={styles.content}>
-            <Text style={styles.message} numberOfLines={3}>
-              {!!item.userName && (
-                <Text
-                  style={styles.userName}
-                  onPress={canOpenUser ? () => onPressUser?.(item) : undefined}
-                >
-                  {item.userName}{" "}
-                </Text>
-              )}
-              {item.message}
-            </Text>
-
-            {!!item.eventName && (
-              <Text style={styles.eventName} numberOfLines={1}>
-                {item.eventName}
-              </Text>
-            )}
-
-            <Text style={styles.timestamp}>{item.timestamp}</Text>
-          </View>
-
-          {/* Unread dot */}
-          {!item.read && <View style={styles.unreadDot} />}
-        </View>
-      </TouchableOpacity>
-    );
-  };
+  const renderSeparator = useCallback(() => <View style={styles.sep} />, []);
 
   return (
     <Modal visible={isOpen} animationType="slide" transparent>
@@ -153,8 +172,12 @@ export function NotificationsModal({ isOpen, onClose, notifications, onMarkAsRea
                 data={notifications}
                 keyExtractor={(n) => n.id}
                 renderItem={renderItem}
-                ItemSeparatorComponent={() => <View style={styles.sep} />}
+                ItemSeparatorComponent={renderSeparator}
                 contentContainerStyle={styles.listContent}
+                removeClippedSubviews
+                initialNumToRender={12}
+                maxToRenderPerBatch={12}
+                windowSize={7}
               />
             )}
           </View>

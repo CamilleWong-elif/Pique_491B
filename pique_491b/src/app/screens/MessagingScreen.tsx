@@ -39,6 +39,7 @@ type Conversation = {
   id: string;
   name: string;
   avatar?: string;
+  otherUserId?: string;
   lastMessage: string;
   timestamp: string;
   sortTime: number;
@@ -74,7 +75,7 @@ type Message = {
 interface MessagingScreenProps {
   onBack: () => void;
   openWithUserId?: string;
-  onNavigate?: (page: string, eventId?: string) => void;
+  onNavigate?: (page: string, eventId?: string, options?: any) => void;
 }
 
 export function MessagingScreen({ onBack, openWithUserId, onNavigate }: MessagingScreenProps) {
@@ -150,6 +151,7 @@ export function MessagingScreen({ onBack, openWithUserId, onNavigate }: Messagin
           id: chatDoc.id,
           name: chatName,
           avatar: chatAvatar,
+          otherUserId: otherUserIds.length === 1 ? otherUserIds[0] : undefined,
           lastMessage: data.lastMessage || '',
           timestamp: timeStr,
           sortTime,
@@ -190,6 +192,7 @@ export function MessagingScreen({ onBack, openWithUserId, onNavigate }: Messagin
           id: convoId,
           name: friendName,
           avatar: friendAvatar,
+          otherUserId: openWithUserId,
           lastMessage: '',
           timestamp: '',
           sortTime: Date.now(),
@@ -468,7 +471,11 @@ export function MessagingScreen({ onBack, openWithUserId, onNavigate }: Messagin
         {item.eventAttachment && (
           <TouchableOpacity 
             style={[styles.eventMsgCard, item.fromMe ? styles.eventMsgCardMe : styles.eventMsgCardThem]} 
-            onPress={() => onNavigate?.('event', item.eventAttachment!.id)}
+            onPress={() =>
+              onNavigate?.('event', item.eventAttachment!.id, {
+                recipientId: activeConvo?.otherUserId,
+              })
+            }
             activeOpacity={0.8}
           >
             {item.eventAttachment.imageUrl ? (
@@ -551,7 +558,13 @@ export function MessagingScreen({ onBack, openWithUserId, onNavigate }: Messagin
     return (
       <SafeAreaView style={styles.root}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => { setActiveConvo(null); setReplyTo(null); }}>
+          <TouchableOpacity
+            onPress={() => {
+              setActiveConvo(null);
+              setReplyTo(null);
+              onNavigate?.('messages', undefined, { recipientId: undefined, replace: true });
+            }}
+          >
             <ArrowLeft size={24} color="#111" />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
@@ -740,7 +753,13 @@ export function MessagingScreen({ onBack, openWithUserId, onNavigate }: Messagin
         keyExtractor={c => c.id}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.convoRow} onPress={() => setActiveConvo(item)}>
+          <TouchableOpacity
+            style={styles.convoRow}
+            onPress={() => {
+              setActiveConvo(item);
+              onNavigate?.('messages', undefined, { recipientId: item.otherUserId, replace: true });
+            }}
+          >
             <View style={styles.avatarWrap}>
               {item.avatar
                 ? <Image source={{ uri: item.avatar }} style={styles.avatar} />

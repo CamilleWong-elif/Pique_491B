@@ -170,7 +170,7 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   const fetchFeedReviews = useCallback(async (showLoading = true) => {
     if (showLoading) setIsFeedLoading(true);
     try {
-      const data = await apiGetFriendReviews();
+      const data = await apiGetFriendReviews('following');
       const activities = await Promise.all((data || []).map(async (r: any) => {
         const sourceType = r.action === 'interested' ? 'bookmark' : 'review';
         let comments: any[] = Array.isArray(r.comments) ? r.comments : [];

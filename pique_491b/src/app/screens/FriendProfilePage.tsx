@@ -14,8 +14,10 @@ import {
   FlatList,
   Modal,
   Pressable,
+  Platform,
+  StatusBar,
 } from "react-native";
-import { FileText, Heart, Calendar, X } from "lucide-react-native";
+import { ArrowLeft, FileText, Heart, Calendar, X } from "lucide-react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 // ---- Types ----
@@ -71,6 +73,15 @@ type FollowButtonState = {
   isFollowedByFriend: boolean;
   label: "Follow" | "Following" | "Follow Back" | "You";
 };
+
+function avatarSeedFor(displayName?: string, username?: string, id?: string): string {
+  return (
+    (displayName && displayName.trim()) ||
+    (username && username.replace(/^@/, "").trim()) ||
+    (id && id.trim()) ||
+    "user"
+  );
+}
 
 function getFollowButtonState(params: {
   currentUid: string;
@@ -142,7 +153,7 @@ export function FriendProfileScreen({
     name: "",
     username: "",
     bio: "",
-    avatar: getAvatarWithFallback(friendName),
+    avatar: getAvatarWithFallback(avatarSeedFor(undefined, undefined, friendName)),
     bannerDataUrl: null as string | null,
     followerUids: [] as string[],
     followingUids: [] as string[],
@@ -186,25 +197,18 @@ export function FriendProfileScreen({
     const fetchFriendData = async () => {
       try {
         const userData = await apiGetUser(friendName);
-        const bios = [
-          "Event enthusiast | Foodie | Explorer",
-          "Adventure seeker | Coffee lover",
-          "Music lover | Travel addict",
-          "Fitness junkie | Nature lover",
-          "Art enthusiast | Photographer",
-          "Bookworm | Movie buff",
-          "Foodie explorer | Chef wannabe",
-          "Party animal | Social butterfly",
-          "Yoga instructor | Wellness advocate",
-          "Gamer | Tech geek",
-        ];
-        const hash = friendName.split("").reduce((acc: number, ch: string) => acc + ch.charCodeAt(0), 0);
         setFriendData({
           id: userData?.id || friendName,
           name: userData?.displayName || "",
           username: userData?.username || "",
-          bio: userData?.bio || bios[hash % bios.length],
-          avatar: userData?.avatarDataUrl || userData?.avatar || userData?.photoURL || getAvatarWithFallback(friendName),
+          bio: typeof userData?.bio === "string" ? userData.bio : "",
+          avatar:
+            userData?.avatarDataUrl ||
+            userData?.avatar ||
+            userData?.photoURL ||
+            getAvatarWithFallback(
+              avatarSeedFor(userData?.displayName, userData?.username, userData?.id || friendName)
+            ),
           bannerDataUrl: userData?.bannerDataUrl ?? null,
           followerUids: userData?.followerCount ?? [],
           followingUids: userData?.followingCount ?? [],
@@ -305,6 +309,17 @@ export function FriendProfileScreen({
 
   return (
     <SafeAreaView style={styles.root}>
+      <TouchableOpacity
+        style={[
+          styles.backBtn,
+          { top: (Platform.OS === "android" ? (StatusBar.currentHeight || 0) : 0) + 14 },
+        ]}
+        onPress={onBack}
+        accessibilityRole="button"
+        accessibilityLabel="Back"
+      >
+        <ArrowLeft size={20} color="#111" />
+      </TouchableOpacity>
       <FlatList
         data={listData}
         keyExtractor={(item: any) => item.id}
@@ -332,7 +347,9 @@ export function FriendProfileScreen({
                 <View style={styles.profileInfo}>
                   <Text style={styles.userName}>{friendData.name}</Text>
                   {friendData.username ? <Text style={styles.usernameText}>@{friendData.username}</Text> : null}
-                  <Text style={styles.bio}>{friendData.bio}</Text>
+                  {friendData.bio.trim().length > 0 ? (
+                    <Text style={styles.bio}>{friendData.bio}</Text>
+                  ) : null}
 
                   <View style={styles.statsRow}>
                     <TouchableOpacity onPress={() => setShowFollowModal("followers")}>
@@ -489,7 +506,14 @@ export function FriendProfileScreen({
                     style={styles.userAvatarWrap}
                     onPress={() => { setShowFollowModal(null); onNavigate("friendProfile", undefined, { friendName: user.id }); }}
                   >
-                    <Image source={{ uri: user.avatar || getAvatarWithFallback(user.name || user.id) }} style={styles.userAvatar} />
+                    <Image
+                      source={{
+                        uri:
+                          user.avatar ||
+                          getAvatarWithFallback(avatarSeedFor(user.name, user.username, user.id)),
+                      }}
+                      style={styles.userAvatar}
+                    />
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.userInfo}
@@ -576,20 +600,19 @@ const styles = StyleSheet.create({
 
   backBtn: {
     position: "absolute",
-    top: 16,
-    left: 16,
+    left: 18,
     zIndex: 20,
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#fff",
+    backgroundColor: "#D1D5DB",
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
     shadowOpacity: 0.2,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
 
   listContent: { paddingBottom: 0 },
