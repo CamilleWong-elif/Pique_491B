@@ -128,6 +128,21 @@ export const apiGetEvent = (id: string) =>
 export const apiGetRecommendations = (limit?: number) =>
   apiFetch(`/api/recommendations?limit=${limit ?? 20}`);
 
+// ── Notifications ──
+export const apiGetNotifications = (limit?: number) =>
+  apiFetch(`/api/notifications?limit=${limit ?? 50}`);
+
+export const apiMarkNotificationRead = (notificationId: string) =>
+  apiFetch('/api/notifications/read', {
+    method: 'POST',
+    body: JSON.stringify({ notificationId }),
+  });
+
+export const apiMarkAllNotificationsRead = () =>
+  apiFetch('/api/notifications/read-all', {
+    method: 'POST',
+  });
+
 export const apiCreateEvent = (data: Record<string, any>) =>
   apiFetch('/api/events', { method: 'POST', body: JSON.stringify(data) });
 
@@ -184,8 +199,8 @@ export const apiGetReviews = (eventId?: string) =>
 export const apiPostReview = (data: { eventId: string; rating: number; comment: string; images?: string[] }) =>
   apiFetch('/api/reviews', { method: 'POST', body: JSON.stringify(data) });
 
-export const apiGetFriendReviews = () =>
-  apiFetch('/api/reviews/friends');
+export const apiGetFriendReviews = (scope: 'mutual' | 'following' = 'mutual') =>
+  apiFetch(`/api/reviews/friends?scope=${scope}`);
 
 /** Hide a feed activity for the current user only (e.g. bookmark card); does not remove the bookmark. */
 export const apiDismissFeedActivity = (activityId: string) =>

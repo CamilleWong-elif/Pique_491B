@@ -190,6 +190,8 @@ function mapFirestoreToEvent(id: string, d: Record<string, any>): Event {
     address: d.address ?? d.location ?? "",
     distance: typeof d.distance === "number" ? d.distance : 0,
     pricePoint: typeof d.pricePoint === "number" ? d.pricePoint : (d.ticketTiers?.length ? 1 : 0),
+    externalUrl: d.externalUrl ?? null,
+    source: d.source ?? 'manual',
   };
 }
 
@@ -391,8 +393,7 @@ export function EventDetailScreen({
 
   const isExternalEvent =
     !!(event as any)?.externalUrl &&
-    (event as any)?.source &&
-    (event as any).source !== 'manual';
+    (event as any)?.source !== 'manual';
 
   const handleBookClick = async () => {
     if (booking) return;

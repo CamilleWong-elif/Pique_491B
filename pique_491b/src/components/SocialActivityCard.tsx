@@ -31,6 +31,7 @@ import {
   MessageCircle,
   Bookmark,
   Trash2,
+  MoreHorizontal,
   X,
   ChevronLeft,
   ChevronRight,
@@ -126,6 +127,7 @@ export function SocialActivityCard({
   const [likesLoading, setLikesLoading] = useState(false);
   const [likesError, setLikesError] = useState<string | null>(null);
   const [commentsModalVisible, setCommentsModalVisible] = useState(false);
+  const [showOwnerMenu, setShowOwnerMenu] = useState(false);
 
   // Gallery state
   const [galleryOpen, setGalleryOpen] = useState<boolean>(false);
@@ -144,6 +146,7 @@ export function SocialActivityCard({
     setLocalLikes(activity.likes || 0);
     const nextComments = activity.comments || [];
     setLocalComments(nextComments);
+    setShowOwnerMenu(false);
   }, [activity.id, activity.isLiked, activity.likes, activity.comments]);
 
   const refreshCommentsFromServer = React.useCallback(async () => {
@@ -363,6 +366,18 @@ export function SocialActivityCard({
           <Text style={styles.locationText}>📍 {activity.eventLocation}</Text>
         ) : null}
       </View>
+    );
+  };
+
+  const handleDeletePress = () => {
+    setShowOwnerMenu(false);
+    Alert.alert(
+      "Delete Post",
+      "Are you sure you want to delete this post?",
+      [
+        { text: "No", style: "cancel" },
+        { text: "Yes", style: "destructive", onPress: () => onDelete?.(activity.id) },
+      ]
     );
   };
 
@@ -708,21 +723,26 @@ export function SocialActivityCard({
                 </TouchableOpacity>
               ) : null}
               {isOwner && (
-                <TouchableOpacity
-                  onPress={() =>
-                    Alert.alert(
-                      "Delete Post",
-                      "Are you sure you want to delete this post?",
-                      [
-                        { text: "No", style: "cancel" },
-                        { text: "Yes", style: "destructive", onPress: () => onDelete?.(activity.id) },
-                      ]
-                    )
-                  }
-                  style={styles.actionBtn}
-                >
-                  <Trash2 size={20} color="#ef4444" />
-                </TouchableOpacity>
+                <View style={styles.ownerMenuWrap}>
+                  <TouchableOpacity
+                    onPress={() => setShowOwnerMenu((prev) => !prev)}
+                    style={styles.actionBtn}
+                  >
+                    <MoreHorizontal size={20} color="#374151" />
+                  </TouchableOpacity>
+                  {showOwnerMenu && (
+                    <View style={styles.ownerMenuPopup}>
+                      <TouchableOpacity
+                        style={styles.ownerMenuItem}
+                        onPress={handleDeletePress}
+                        activeOpacity={0.8}
+                      >
+                        <Trash2 size={16} color="#ef4444" />
+                        <Text style={styles.ownerMenuItemText}>Delete post</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
               )}
             </View>
           </View>
@@ -911,6 +931,35 @@ const styles = StyleSheet.create({
   leftActions: { flexDirection: "row", alignItems: "center", gap: 12 },
   rightActions: { flexDirection: "row", alignItems: "center" },
   actionBtn: { padding: 6 },
+  ownerMenuWrap: { position: "relative" },
+  ownerMenuPopup: {
+    position: "absolute",
+    top: 34,
+    right: 0,
+    minWidth: 132,
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+    zIndex: 20,
+  },
+  ownerMenuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  ownerMenuItemText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#ef4444",
+  },
 
   metaText: { color: "#6B7280", fontSize: 12 },
   metaRow: { marginTop: 8, flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },

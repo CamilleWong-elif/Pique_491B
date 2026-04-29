@@ -3,7 +3,7 @@ import { SocialActivity, SocialActivityCard } from '@/components/SocialActivityC
 import { NavigationBar } from '@/components/NavigationBar';
 import { useAuth } from '@/context/AuthContext';
 import { auth } from '@/firebase';
-import { resolveAvatarUrl } from '@/utils/avatar';
+import { getAvatarFallback, resolveAvatarUrl } from '@/utils/avatar';
 import { Globe, Info, RefreshCw, Search, Trophy, Users, X } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -20,14 +20,15 @@ interface CommunityPageProps {
   onNavigate: (page: string, eventId?: string, options?: any) => void;
   onOpenMessages?: () => void;
   unreadMessageCount?: number;
+  initialTab?: Tab;
 }
 
-export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }: CommunityPageProps) {
+export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount, initialTab }: CommunityPageProps) {
   const { profile } = useAuth();
   const insets = useSafeAreaInsets();
   const currentUid = auth.currentUser?.uid ?? '';
   const [followingSet, setFollowingSet] = useState<Set<string>>(new Set(profile?.followingCount ?? []));
-  const [activeTab, setActiveTab] = useState<Tab>('leaderboard');
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? 'leaderboard');
   const [showPointsModal, setShowPointsModal] = useState(false);
   const [leaderboardMode, setLeaderboardMode] = useState<LeaderboardMode>('friends');
   const [searchQuery, setSearchQuery] = useState('');
@@ -41,6 +42,11 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
 
   const [friendReviews, setFriendReviews] = useState<SocialActivity[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!initialTab) return;
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   useEffect(() => {
     setFollowingSet(new Set(profile?.followingCount ?? []));
@@ -177,7 +183,6 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        stickyHeaderIndices={[0]}
         refreshControl={
           activeTab === 'leaderboard' ? (
             <RefreshControl
@@ -410,7 +415,7 @@ export function CommunityPage({ onNavigate, onOpenMessages, unreadMessageCount }
                   onPress={() => onNavigate('friendProfile', undefined, { friendName: user.id })}
                 >
                   <Image
-                    source={{ uri: user.avatar ?? 'https://i.pravatar.cc/150?img=0' }}
+                    source={{ uri: resolveAvatarUrl(user) ?? getAvatarFallback(user.displayName || user.username || 'user') }}
                     style={styles.userAvatar}
                   />
                   <View style={styles.userInfo}>

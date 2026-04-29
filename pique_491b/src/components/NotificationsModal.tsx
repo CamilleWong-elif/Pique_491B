@@ -1,10 +1,15 @@
 // NotificationsModal.tsx (React Native)
-import { Calendar, Heart, MessageSquare, Star, TrendingUp, Trophy, UserPlus, X } from "lucide-react-native";
-import React, { useMemo } from "react";
+import { Star, X } from "lucide-react-native";
+import React, { memo, useCallback } from "react";
 import { FlatList, Image, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export type NotificationType =
+  | "follow"
+  | "review_like"
+  | "review_comment"
+  | "activity_like"
+  | "activity_comment"
   | "like"
   | "comment"
   | "rank_up"
@@ -16,6 +21,7 @@ export type NotificationType =
 export interface Notification {
   id: string;
   type: NotificationType;
+  userId?: string;
   userName?: string;
   userAvatar?: string;
   message: string;
@@ -31,7 +37,71 @@ interface Props {
   onMarkAsRead: (notificationId: string) => void;
   onMarkAllAsRead: () => void;
   unreadCount: number;
+  onPressUser?: (notification: Notification) => void;
 }
+
+interface NotificationRowProps {
+  item: Notification;
+  onMarkAsRead: (notificationId: string) => void;
+  onPressUser?: (notification: Notification) => void;
+}
+
+const NotificationRow = memo(function NotificationRow({ item, onMarkAsRead, onPressUser }: NotificationRowProps) {
+  const initial = String(item.userName || "U").trim().slice(0, 1).toUpperCase() || "U";
+  const canOpenUser = Boolean(item.userId && onPressUser);
+  return (
+    <TouchableOpacity
+      activeOpacity={0.85}
+      onPress={() => onMarkAsRead(item.id)}
+      style={[styles.row, !item.read && styles.rowUnread]}
+    >
+      <View style={styles.rowInner}>
+        {/* Avatar or icon */}
+        <View style={styles.left}>
+          {item.userAvatar ? (
+            <View style={styles.avatarWrap}>
+              <Image
+                source={{ uri: item.userAvatar }}
+                style={styles.avatar}
+                resizeMode="cover"
+              />
+            </View>
+          ) : (
+            <View style={styles.avatarFallbackCircle}>
+              <Text style={styles.avatarFallbackText}>{initial}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Content */}
+        <View style={styles.content}>
+          <Text style={styles.message} numberOfLines={3}>
+            {!!item.userName && (
+              <Text
+                style={styles.userName}
+                onPress={canOpenUser ? () => onPressUser?.(item) : undefined}
+              >
+                {item.userName}{" "}
+              </Text>
+            )}
+            {item.message}
+          </Text>
+
+          {!!item.eventName && (
+            <Text style={styles.eventName} numberOfLines={1}>
+              {item.eventName}
+            </Text>
+          )}
+
+          <Text style={styles.timestamp}>{item.timestamp}</Text>
+        </View>
+
+        {/* Unread dot */}
+        {!item.read && <View style={styles.unreadDot} />}
+      </View>
+    </TouchableOpacity>
+  );
+});
 
 /**
  * Notes:
@@ -39,89 +109,22 @@ interface Props {
  * - Uses Image for avatars (replace with your ImageWithFallback if you have RN version).
  * - Requires `lucide-react-native`.
  */
-export function NotificationsModal({ isOpen, onClose, notifications, onMarkAsRead, onMarkAllAsRead, unreadCount }: Props) {
+export function NotificationsModal({ isOpen, onClose, notifications, onMarkAsRead, onMarkAllAsRead, unreadCount, onPressUser }: Props) {
   const empty = notifications.length === 0;
   const insets = useSafeAreaInsets();
 
-  const Icon = useMemo(() => {
-    const map: Record<
-      NotificationType,
-      { Comp: any; color: string; fill?: boolean }
-    > = {
-      like: { Comp: Heart, color: "#EF4444", fill: true },
-      comment: { Comp: MessageSquare, color: "#3B82F6" },
-      rank_up: { Comp: TrendingUp, color: "#22C55E" },
-      friend_request: { Comp: UserPlus, color: "#A855F7" },
-      event_reminder: { Comp: Calendar, color: "#F97316" },
-      achievement: { Comp: Trophy, color: "#EAB308" },
-      friend_activity: { Comp: Star, color: "#0EA5E9" },
-    };
-    return map;
-  }, []);
-
-  const renderNotificationIcon = (type: NotificationType) => {
-    const cfg = Icon[type] ?? { Comp: Star, color: "#6B7280" };
-    const Comp = cfg.Comp;
-    return (
-      <Comp
-        size={20}
-        color={cfg.color}
-        // lucide-react-native supports "fill" on some icons; safe to pass.
-        // @ts-ignore
-        fill={cfg.fill ? cfg.color : "none"}
+  const renderItem = useCallback(
+    ({ item }: { item: Notification }) => (
+      <NotificationRow
+        item={item}
+        onMarkAsRead={onMarkAsRead}
+        onPressUser={onPressUser}
       />
-    );
-  };
+    ),
+    [onMarkAsRead, onPressUser]
+  );
 
-  const renderItem = ({ item }: { item: Notification }) => {
-    return (
-      <TouchableOpacity
-        activeOpacity={0.85}
-        onPress={() => onMarkAsRead(item.id)}
-        style={[styles.row, !item.read && styles.rowUnread]}
-      >
-        <View style={styles.rowInner}>
-          {/* Avatar or icon */}
-          <View style={styles.left}>
-            {item.userAvatar ? (
-              <View style={styles.avatarWrap}>
-                <Image
-                  source={{ uri: item.userAvatar }}
-                  style={styles.avatar}
-                  resizeMode="cover"
-                />
-              </View>
-            ) : (
-              <View style={styles.iconCircle}>
-                {renderNotificationIcon(item.type)}
-              </View>
-            )}
-          </View>
-
-          {/* Content */}
-          <View style={styles.content}>
-            <Text style={styles.message} numberOfLines={3}>
-              {!!item.userName && (
-                <Text style={styles.userName}>{item.userName} </Text>
-              )}
-              {item.message}
-            </Text>
-
-            {!!item.eventName && (
-              <Text style={styles.eventName} numberOfLines={1}>
-                Event: {item.eventName}
-              </Text>
-            )}
-
-            <Text style={styles.timestamp}>{item.timestamp}</Text>
-          </View>
-
-          {/* Unread dot */}
-          {!item.read && <View style={styles.unreadDot} />}
-        </View>
-      </TouchableOpacity>
-    );
-  };
+  const renderSeparator = useCallback(() => <View style={styles.sep} />, []);
 
   return (
     <Modal visible={isOpen} animationType="slide" transparent>
@@ -169,8 +172,12 @@ export function NotificationsModal({ isOpen, onClose, notifications, onMarkAsRea
                 data={notifications}
                 keyExtractor={(n) => n.id}
                 renderItem={renderItem}
-                ItemSeparatorComponent={() => <View style={styles.sep} />}
+                ItemSeparatorComponent={renderSeparator}
                 contentContainerStyle={styles.listContent}
+                removeClippedSubviews
+                initialNumToRender={12}
+                maxToRenderPerBatch={12}
+                windowSize={7}
               />
             )}
           </View>
@@ -278,13 +285,18 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  iconCircle: {
+  avatarFallbackCircle: {
     width: 48,
     height: 48,
     borderRadius: 999,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: "#DBEAFE",
     alignItems: "center",
     justifyContent: "center",
+  },
+  avatarFallbackText: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#1D4ED8",
   },
   content: {
     flex: 1,

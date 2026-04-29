@@ -32,6 +32,17 @@ const NAV_STATE_KEY = '@pique_nav_state';
 /** Intro splash only once per JS runtime so remounts (OAuth, activity restore) do not replay it. */
 let introSplashCompleted = false;
 
+type RouteSnapshot = {
+  currentPage: string;
+  selectedEventId: string;
+  selectedFriendName: string;
+  postedEventName: string;
+  messageRecipientId?: string;
+  exploreInitialCategory?: string;
+  exploreInitialSearchQuery?: string;
+  communityInitialTab?: 'leaderboard' | 'reviews' | 'find';
+};
+
 export default function App() {
   const { user, profile, loading: authLoading, signOut } = useAuth();
   const [isLoading, setIsLoading] = useState(() => !introSplashCompleted);
@@ -44,8 +55,10 @@ export default function App() {
   const [messageRecipientId, setMessageRecipientId] = useState<string | undefined>(undefined);
   const [exploreInitialCategory, setExploreInitialCategory] = useState<string | undefined>(undefined);
   const [exploreInitialSearchQuery, setExploreInitialSearchQuery] = useState<string | undefined>(undefined);
+  const [communityInitialTab, setCommunityInitialTab] = useState<'leaderboard' | 'reviews' | 'find' | undefined>(undefined);
   const [authSessionKey, setAuthSessionKey] = useState(0);
   const prevUidRef = useRef<string | null | undefined>(undefined);
+  const navBackStackRef = useRef<RouteSnapshot[]>([]);
 
   const isAuthenticated = !!user;
 
@@ -62,7 +75,57 @@ export default function App() {
     setPostedEventName('');
     setExploreInitialCategory(undefined);
     setExploreInitialSearchQuery(undefined);
+    setCommunityInitialTab(undefined);
+    setMessageRecipientId(undefined);
+    navBackStackRef.current = [];
     setAuthSessionKey((prev) => prev + 1);
+  }, []);
+
+  const getRouteSnapshot = useCallback(
+    (): RouteSnapshot => ({
+      currentPage,
+      selectedEventId,
+      selectedFriendName,
+      postedEventName,
+      messageRecipientId,
+      exploreInitialCategory,
+      exploreInitialSearchQuery,
+      communityInitialTab,
+    }),
+    [
+      communityInitialTab,
+      currentPage,
+      exploreInitialCategory,
+      exploreInitialSearchQuery,
+      messageRecipientId,
+      postedEventName,
+      selectedEventId,
+      selectedFriendName,
+    ]
+  );
+
+  const routeKey = useCallback((route: RouteSnapshot): string => {
+    return JSON.stringify([
+      route.currentPage,
+      route.selectedEventId || '',
+      route.selectedFriendName || '',
+      route.postedEventName || '',
+      route.messageRecipientId || '',
+      route.exploreInitialCategory || '',
+      route.exploreInitialSearchQuery || '',
+      route.communityInitialTab || '',
+    ]);
+  }, []);
+
+  const applyRouteSnapshot = useCallback((route: RouteSnapshot) => {
+    setCurrentPage(route.currentPage);
+    setSelectedEventId(route.selectedEventId || '');
+    setSelectedFriendName(route.selectedFriendName || '');
+    setPostedEventName(route.postedEventName || '');
+    setMessageRecipientId(route.messageRecipientId);
+    setExploreInitialCategory(route.exploreInitialCategory);
+    setExploreInitialSearchQuery(route.exploreInitialSearchQuery);
+    setCommunityInitialTab(route.communityInitialTab);
   }, []);
 
   useEffect(() => {
@@ -113,6 +176,9 @@ export default function App() {
       setPostedEventName('');
       setExploreInitialCategory(undefined);
       setExploreInitialSearchQuery(undefined);
+      setCommunityInitialTab(undefined);
+      setMessageRecipientId(undefined);
+      navBackStackRef.current = [];
       void AsyncStorage.removeItem(NAV_STATE_KEY);
     }
     prevUidRef.current = uid;
@@ -136,18 +202,83 @@ export default function App() {
     if (typeof page !== 'string' || page.trim().length === 0) {
       throw new Error(`handleNavigate received an invalid page: ${JSON.stringify(page)}`);
     }
-    if (page === 'event-posted' && param) setPostedEventName(param);
-    if ((page === 'event' || page === 'review') && param) setSelectedEventId(param);
+    const currentRoute = getRouteSnapshot();
+    const nextRoute: RouteSnapshot = {
+      ...currentRoute,
+      currentPage: page,
+    };
+
+    if (page === 'event-posted') {
+      nextRoute.postedEventName = param || '';
+    }
+    if (page === 'event' || page === 'review') {
+      nextRoute.selectedEventId = param || currentRoute.selectedEventId || '';
+    }
     if (page === 'friendProfile') {
-      const friendName = options?.friendName || param || '';
-      setSelectedFriendName(friendName);
+      nextRoute.selectedFriendName = options?.friendName || param || '';
+    }
+    if (options && Object.prototype.hasOwnProperty.call(options, 'recipientId')) {
+      nextRoute.messageRecipientId = options.recipientId;
+    }
+    if (page === 'messages' && (!options || !Object.prototype.hasOwnProperty.call(options, 'recipientId'))) {
+      nextRoute.messageRecipientId = undefined;
     }
     if (page === 'explore') {
-      setExploreInitialCategory(options?.category);
-      setExploreInitialSearchQuery(options?.searchQuery);
+      nextRoute.exploreInitialCategory = options?.category;
+      nextRoute.exploreInitialSearchQuery = options?.searchQuery;
     }
-    setCurrentPage(page);
+    if (page === 'leaderboard') {
+      nextRoute.communityInitialTab = options?.tab;
+    }
+
+    const shouldReplace = Boolean(options?.replace);
+    const currentKey = routeKey(currentRoute);
+    const nextKey = routeKey(nextRoute);
+    if (currentKey === nextKey) return;
+
+    if (!shouldReplace) {
+      const backStack = navBackStackRef.current;
+      const lastBackEntry = backStack[backStack.length - 1];
+      if (!lastBackEntry || routeKey(lastBackEntry) !== currentKey) {
+        backStack.push(currentRoute);
+      }
+    }
+
+    applyRouteSnapshot(nextRoute);
   };
+
+  const handleGoBack = useCallback(() => {
+    const currentKey = routeKey(getRouteSnapshot());
+    const backStack = navBackStackRef.current;
+
+    let target: RouteSnapshot | undefined;
+    while (backStack.length > 0) {
+      const candidate = backStack.pop();
+      if (!candidate) break;
+      if (routeKey(candidate) !== currentKey) {
+        target = candidate;
+        break;
+      }
+    }
+
+    if (target) {
+      applyRouteSnapshot(target);
+      return;
+    }
+
+    if (currentPage !== 'home') {
+      applyRouteSnapshot({
+        currentPage: 'home',
+        selectedEventId: '',
+        selectedFriendName: '',
+        postedEventName: '',
+        messageRecipientId: undefined,
+        exploreInitialCategory: undefined,
+        exploreInitialSearchQuery: undefined,
+        communityInitialTab: undefined,
+      });
+    }
+  }, [applyRouteSnapshot, currentPage, getRouteSnapshot, routeKey]);
 
   const handleSignOut = async () => {
     setShowSignUp(false);
@@ -257,7 +388,10 @@ export default function App() {
             style={[StyleSheet.absoluteFill, { zIndex: currentPage === 'leaderboard' ? 1 : 0, opacity: currentPage === 'leaderboard' ? 1 : 0 }]}
             pointerEvents={currentPage === 'leaderboard' ? 'auto' : 'none'}
           >
-            <CommunityPage onNavigate={handleNavigate} />
+            <CommunityPage
+              onNavigate={handleNavigate}
+              initialTab={communityInitialTab}
+            />
           </View>
         )}
         {showApp && !needsSurvey && (
@@ -273,7 +407,7 @@ export default function App() {
         )}
         {showApp && !needsSurvey && currentPage === 'messages' && (
           <MessagingScreen
-            onBack={() => { setMessageRecipientId(undefined); handleNavigate('home'); }}
+            onBack={handleGoBack}
             openWithUserId={messageRecipientId}
             onNavigate={handleNavigate}
           />
@@ -299,14 +433,14 @@ export default function App() {
         {showApp && !needsSurvey && currentPage === 'event' && !!selectedEventId && (
           <EventDetailScreen
             eventId={selectedEventId}
-            onBack={() => handleNavigate('home')}
+            onBack={handleGoBack}
             onNavigate={handleNavigate}
           />
         )}
         {showApp && !needsSurvey && currentPage === 'review' && !!selectedEventId && (
           <LeaveReviewScreen
             event={{ id: selectedEventId, imageUrl: '', businessName: '', location: '' }}
-            onBack={() => handleNavigate('event', selectedEventId)}
+            onBack={handleGoBack}
             onReviewPosted={() => handleNavigate('event', selectedEventId)}
           />
         )}
@@ -317,8 +451,8 @@ export default function App() {
           <FriendProfileScreen
             friendName={selectedFriendName}
             onNavigate={handleNavigate}
-            onBack={() => handleNavigate('leaderboard')}
-            onOpenMessages={(friendId?: string) => { setMessageRecipientId(friendId); handleNavigate('messages'); }}
+            onBack={handleGoBack}
+            onOpenMessages={(friendId?: string) => handleNavigate('messages', undefined, { recipientId: friendId })}
             unreadMessageCount={0}
             mockEvents={[]}
             getAvatarWithFallback={getAvatarWithFallback}

@@ -236,6 +236,7 @@ router.get("/friends", authenticate, async (req, res) => {
       typeof value === "string" ? value.trim().toLowerCase() : "";
 
     const viewerUid = req.user.uid;
+    const scope = String(req.query?.scope || "mutual").trim().toLowerCase();
 
     const currentUserDoc = await db.collection("users").doc(viewerUid).get();
     const currentUserData = currentUserDoc.exists ? currentUserDoc.data() : {};
@@ -262,7 +263,9 @@ router.get("/friends", authenticate, async (req, res) => {
         }
       });
     }
-    const friendIds = Array.from(new Set(mutualFriendIds));
+    const friendIds = Array.from(
+      new Set(scope === "following" ? followingIds : mutualFriendIds)
+    );
 
     const allReviewsMap = new Map();
 

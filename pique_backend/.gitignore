@@ -4,6 +4,11 @@ node_modules/
 .env
 .env.*
 
+# Firebase service account key (never commit — use env vars on Railway)
+*.json
+!package.json
+!package-lock.json
+
 # Runtime / tooling
 *.log
 npm-debug.log*

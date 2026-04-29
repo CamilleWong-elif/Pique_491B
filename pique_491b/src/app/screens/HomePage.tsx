@@ -1,10 +1,10 @@
 import { EventCard } from '@/components/EventCard';
 import { NavigationBar } from '@/components/NavigationBar';
-import { NotificationsModal } from '@/components/NotificationsModal';
+import { Notification as NotificationItem, NotificationsModal } from '@/components/NotificationsModal';
 import { SocialActivity, SocialActivityCard } from '@/components/SocialActivityCard';
 import { SearchOverlay } from '@/components/SearchOverlay';
 import { useAuth } from '@/context/AuthContext';
-import { apiDeleteReview, apiDismissFeedActivity, apiGetFriendReviews, apiGetRecommendations, apiGetReviewComments, apiPostActivityComment, apiPostReviewComment, apiToggleActivityLike, apiToggleLike, apiToggleReviewLike } from '@/api';
+import { apiDeleteReview, apiDismissFeedActivity, apiGetFriendReviews, apiGetNotifications, apiGetRecommendations, apiGetReviewComments, apiMarkAllNotificationsRead, apiMarkNotificationRead, apiPostActivityComment, apiPostReviewComment, apiToggleActivityLike, apiToggleLike, apiToggleReviewLike } from '@/api';
 import { resolveAvatarUrl } from '@/utils/avatar';
 import { Bell, Menu, MessageCircle, Plus, Search, SlidersHorizontal, X } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -14,9 +14,24 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 
 
 import { ALL_CATEGORIES } from '@/constants/categories';
-const mockNotifications: any[] = [];
 
 const logo = require('@/assets/images/temp_logo.png');
+
+function formatRelativeTime(value: string): string {
+  const ts = new Date(value).getTime();
+  if (!Number.isFinite(ts)) return 'Just now';
+  const diffMs = Date.now() - ts;
+  if (diffMs < 60_000) return 'Just now';
+  const diffMinutes = Math.floor(diffMs / 60_000);
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  const diffWeeks = Math.floor(diffDays / 7);
+  if (diffWeeks < 5) return `${diffWeeks}w ago`;
+  return new Date(ts).toLocaleDateString();
+}
 
 interface HomePageProps {
   onNavigate: (page: string, eventId?: string, options?: any) => void;
@@ -35,13 +50,13 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [notifications, setNotifications] = useState(mockNotifications);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [likedEventIds, setLikedEventIds] = useState<Set<string>>(new Set());
   const [feedActivities, setFeedActivities] = useState<SocialActivity[]>([]);
   const [isFeedLoading, setIsFeedLoading] = useState(true);
   const [recommendedEvents, setRecommendedEvents] = useState<any[]>([]);
   const [isRecsLoading, setIsRecsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRefreshingHome, setIsRefreshingHome] = useState(false);
   const skeletonPulse = useRef(new Animated.Value(0.45)).current;
   const insets = useSafeAreaInsets();
 
@@ -140,22 +155,22 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
     return `${startStr} ~ ${endStr}`;
   };
 
-  const fetchRecommendations = useCallback(async (showLoader = true) => {
-    if (showLoader) setIsRecsLoading(true);
+  const fetchRecs = useCallback(async (showLoading = true) => {
+    if (showLoading) setIsRecsLoading(true);
     try {
       const recs = await apiGetRecommendations(10);
       setRecommendedEvents(recs || []);
     } catch (err: any) {
       console.error('HomePage: Error fetching recommendations:', err?.message ?? err);
     } finally {
-      if (showLoader) setIsRecsLoading(false);
+      if (showLoading) setIsRecsLoading(false);
     }
   }, []);
 
-  const fetchFeedReviews = useCallback(async (showLoader = true, preserveCurrentOnError = false) => {
-    if (showLoader) setIsFeedLoading(true);
+  const fetchFeedReviews = useCallback(async (showLoading = true) => {
+    if (showLoading) setIsFeedLoading(true);
     try {
-      const data = await apiGetFriendReviews();
+      const data = await apiGetFriendReviews('following');
       const activities = await Promise.all((data || []).map(async (r: any) => {
         const sourceType = r.action === 'interested' ? 'bookmark' : 'review';
         let comments: any[] = Array.isArray(r.comments) ? r.comments : [];
@@ -187,32 +202,70 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
       setFeedActivities(activities);
     } catch (error: any) {
       console.error('HomePage: Error fetching activity feed reviews:', error?.message ?? error);
-      if (!preserveCurrentOnError) setFeedActivities([]);
+      setFeedActivities([]);
     } finally {
-      if (showLoader) setIsFeedLoading(false);
+      if (showLoading) setIsFeedLoading(false);
     }
   }, [user?.uid]);
 
   useEffect(() => {
-    fetchRecommendations();
-  }, [fetchRecommendations]);
+    void fetchRecs(true);
+  }, [fetchRecs]);
 
   useEffect(() => {
-    fetchFeedReviews();
+    void fetchFeedReviews(true);
   }, [fetchFeedReviews]);
 
-  const refreshHomeData = useCallback(async () => {
-    if (isRefreshing) return;
-    setIsRefreshing(true);
+  const handleRefreshHome = useCallback(async () => {
+    setIsRefreshingHome(true);
     try {
       await Promise.all([
-        fetchRecommendations(false),
-        fetchFeedReviews(false, true),
+        fetchRecs(false),
+        fetchFeedReviews(false),
       ]);
     } finally {
-      setIsRefreshing(false);
+      setIsRefreshingHome(false);
     }
-  }, [fetchFeedReviews, fetchRecommendations, isRefreshing]);
+  }, [fetchFeedReviews, fetchRecs]);
+
+  const fetchNotifications = useCallback(async () => {
+    if (!user?.uid) return;
+    try {
+      const rows = await apiGetNotifications(60);
+      setNotifications(
+        (Array.isArray(rows) ? rows : []).map((row: any) => ({
+          id: String(row?.id ?? `${row?.type || 'notification'}_${Math.random().toString(36).slice(2, 8)}`),
+          type: row?.type ?? 'friend_activity',
+          userId: row?.userId ?? undefined,
+          userName: row?.userName ?? undefined,
+          userAvatar: row?.userAvatar ?? undefined,
+          message: row?.message ?? 'sent you a notification',
+          eventName: row?.eventName ?? undefined,
+          timestamp: formatRelativeTime(String(row?.timestamp ?? '')),
+          read: Boolean(row?.read),
+        }))
+      );
+    } catch (error: any) {
+      console.error('HomePage: Error fetching notifications:', error?.message ?? error);
+    }
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setNotifications([]);
+      return;
+    }
+    void fetchNotifications();
+    const intervalId = setInterval(() => {
+      void fetchNotifications();
+    }, 60_000);
+    return () => clearInterval(intervalId);
+  }, [fetchNotifications, user?.uid]);
+
+  useEffect(() => {
+    if (!isNotificationsOpen) return;
+    void fetchNotifications();
+  }, [fetchNotifications, isNotificationsOpen]);
 
   const handleFeedReviewLike = async (activityId: string) => {
     const current = feedActivities.find((a) => a.id === activityId);
@@ -287,7 +340,7 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
     }
   };
 
-  const unreadNotificationCount = notifications.filter((n: any) => !n.read).length;
+  const unreadNotificationCount = notifications.filter((n) => !n.read).length;
 
   const getEventDate = (e: any): Date => {
     const val = e.date ?? e.startDate;
@@ -425,10 +478,10 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={refreshHomeData}
-            tintColor="#ef4444"
-            colors={['#ef4444']}
+            refreshing={isRefreshingHome}
+            onRefresh={() => { void handleRefreshHome(); }}
+            tintColor="#3b82f6"
+            colors={['#3b82f6']}
           />
         }
       >
@@ -454,23 +507,15 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
               >
                 <Bell size={18} color="#374151" />
                 {unreadNotificationCount > 0 && (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>
-                      {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
-                    </Text>
-                  </View>
+                  <View style={styles.badgeDot} />
                 )}
               </TouchableOpacity>
 
               {/* Messages Button */}
               <TouchableOpacity style={styles.iconButton} onPress={onOpenMessages}>
                 <MessageCircle size={18} color="#374151" />
-                {unreadMessageCount && unreadMessageCount > 0 ? (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>
-                      {unreadMessageCount > 99 ? '99+' : unreadMessageCount}
-                    </Text>
-                  </View>
+                {Number(unreadMessageCount ?? 0) > 0 ? (
+                  <View style={styles.badgeDot} />
                 ) : null}
               </TouchableOpacity>
 
@@ -650,6 +695,9 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
           setSubmittedSearchQuery(committed);
           onNavigate('explore', undefined, { searchQuery: committed });
         }}
+        onNavigateToFindPeople={() => {
+          onNavigate('leaderboard', undefined, { tab: 'find' });
+        }}
         location={location}
         onLocationChange={setLocation}
       />
@@ -658,15 +706,32 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
         isOpen={isNotificationsOpen}
         onClose={() => setIsNotificationsOpen(false)}
         notifications={notifications}
-        onMarkAsRead={(id: string) =>
+        onMarkAsRead={(id: string) => {
           setNotifications(prev =>
-            prev.map((n: any) => n.id === id ? { ...n, read: true } : n)
-          )
-        }
-        onMarkAllAsRead={() =>
-          setNotifications(prev => prev.map((n: any) => ({ ...n, read: true })))
-        }
+            prev.map((n) => n.id === id ? { ...n, read: true } : n)
+          );
+          void apiMarkNotificationRead(id).catch((error: any) => {
+            console.error('HomePage: Error marking notification as read:', error?.message ?? error);
+          });
+        }}
+        onMarkAllAsRead={() => {
+          setNotifications(prev => prev.map((n) => ({ ...n, read: true })));
+          void apiMarkAllNotificationsRead().catch((error: any) => {
+            console.error('HomePage: Error marking all notifications as read:', error?.message ?? error);
+          });
+        }}
         unreadCount={unreadNotificationCount}
+        onPressUser={(notification) => {
+          if (!notification.userId) return;
+          setIsNotificationsOpen(false);
+          onNavigate('friendProfile', undefined, { friendName: notification.userId });
+          setNotifications(prev =>
+            prev.map((n) => (n.id === notification.id ? { ...n, read: true } : n))
+          );
+          void apiMarkNotificationRead(notification.id).catch((error: any) => {
+            console.error('HomePage: Error marking notification as read:', error?.message ?? error);
+          });
+        }}
       />
 
       {/* Filter & Sort Modal */}
@@ -887,22 +952,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  badge: {
+  badgeDot: {
     position: 'absolute',
-    top: -2,
-    right: -2,
+    top: 2,
+    right: 2,
     backgroundColor: '#ef4444',
-    borderRadius: 9,
-    minWidth: 18,
-    height: 18,
+    borderRadius: 5,
+    width: 10,
+    height: 10,
+    borderWidth: 1.5,
+    borderColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  badgeText: {
-    color: '#ffffff',
-    fontSize: 10,
-    fontWeight: 'bold',
   },
   // Search
   searchCard: {

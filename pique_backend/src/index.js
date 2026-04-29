@@ -13,6 +13,7 @@ const messagesRoutes = require("../routes/messages");
 const contactRoutes = require("../routes/contact");
 const ingestionRoutes = require("../routes/ingestion");
 const recommendationsRoutes = require("../routes/recommendations");
+const notificationsRoutes = require("../routes/notifications");
 
 const app = express();
 
@@ -39,6 +40,7 @@ app.use("/api/contact", contactRoutes);    // Contact form email
 app.use("/contact", contactRoutes);        // Legacy/mobile fallback
 app.use("/api/ingestion", ingestionRoutes); // Event ingestion (Ticketmaster, etc.)
 app.use("/api/recommendations", recommendationsRoutes); // Personalized event recommendations
+app.use("/api/notifications", notificationsRoutes); // User notifications feed
 
 // ── 404 catch-all ──
 app.use((_req, res) => {

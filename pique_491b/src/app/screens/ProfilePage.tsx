@@ -12,7 +12,7 @@ import { EventCard } from '@/components/EventCard';
 import { NavigationBar } from '@/components/NavigationBar';
 import { useAuth } from '@/context/AuthContext';
 import type { Event } from '@/types/Event';
-import { resolveAvatarUrl } from '@/utils/avatar';
+import { getAvatarFallback, resolveAvatarUrl } from '@/utils/avatar';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { Calendar, Camera, FileText, Heart, Pencil, X } from 'lucide-react-native';
@@ -554,7 +554,14 @@ export function ProfilePage({
               renderItem={({ item }) => (
                 <View style={styles.userRow}>
                   <TouchableOpacity onPress={() => { setShowFollowModal(null); onNavigate('friendProfile', undefined, { friendName: item.id }); }}>
-                    <Image source={{ uri: item.avatar || `https://api.dicebear.com/7.x/initials/png?seed=${encodeURIComponent(item.name || item.id)}` }} style={styles.userAvatar} />
+                    <Image
+                      source={{
+                        uri:
+                          item.avatar ||
+                          getAvatarFallback(item.name || item.username.replace(/^@/, '') || item.id),
+                      }}
+                      style={styles.userAvatar}
+                    />
                   </TouchableOpacity>
                   <TouchableOpacity style={{ flex: 1, minWidth: 0 }} onPress={() => { setShowFollowModal(null); onNavigate('friendProfile', undefined, { friendName: item.id }); }}>
                     <Text style={styles.modalUserName} numberOfLines={1}>{item.name}</Text>
