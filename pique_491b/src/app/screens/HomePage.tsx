@@ -7,8 +7,8 @@ import { useAuth } from '@/context/AuthContext';
 import { apiDeleteReview, apiDismissFeedActivity, apiGetFriendReviews, apiGetRecommendations, apiGetReviewComments, apiPostActivityComment, apiPostReviewComment, apiToggleActivityLike, apiToggleLike, apiToggleReviewLike } from '@/api';
 import { resolveAvatarUrl } from '@/utils/avatar';
 import { Bell, Menu, MessageCircle, Plus, Search, SlidersHorizontal, X } from 'lucide-react-native';
-import { useEffect, useRef, useState } from 'react';
-import { Animated, FlatList, Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Animated, FlatList, Image, Modal, Platform, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
@@ -41,6 +41,7 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
   const [isFeedLoading, setIsFeedLoading] = useState(true);
   const [recommendedEvents, setRecommendedEvents] = useState<any[]>([]);
   const [isRecsLoading, setIsRecsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const skeletonPulse = useRef(new Animated.Value(0.45)).current;
   const insets = useSafeAreaInsets();
 
@@ -139,37 +140,33 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
     return `${startStr} ~ ${endStr}`;
   };
 
-  useEffect(() => {
-    const fetchRecs = async () => {
-      setIsRecsLoading(true);
-      try {
-        const recs = await apiGetRecommendations(10);
-        setRecommendedEvents(recs || []);
-      } catch (err: any) {
-        console.error('HomePage: Error fetching recommendations:', err?.message ?? err);
-      } finally {
-        setIsRecsLoading(false);
-      }
-    };
-    fetchRecs();
+  const fetchRecommendations = useCallback(async (showLoader = true) => {
+    if (showLoader) setIsRecsLoading(true);
+    try {
+      const recs = await apiGetRecommendations(10);
+      setRecommendedEvents(recs || []);
+    } catch (err: any) {
+      console.error('HomePage: Error fetching recommendations:', err?.message ?? err);
+    } finally {
+      if (showLoader) setIsRecsLoading(false);
+    }
   }, []);
 
-  useEffect(() => {
-    const fetchFeedReviews = async () => {
-      setIsFeedLoading(true);
-      try {
-        const data = await apiGetFriendReviews();
-        const activities = await Promise.all((data || []).map(async (r: any) => {
-          const sourceType = r.action === 'interested' ? 'bookmark' : 'review';
-          let comments: any[] = Array.isArray(r.comments) ? r.comments : [];
-          if (sourceType === 'review') {
-            try {
-              comments = await apiGetReviewComments(r.id);
-            } catch {
-              comments = Array.isArray(r.comments) ? r.comments : [];
-            }
+  const fetchFeedReviews = useCallback(async (showLoader = true, preserveCurrentOnError = false) => {
+    if (showLoader) setIsFeedLoading(true);
+    try {
+      const data = await apiGetFriendReviews();
+      const activities = await Promise.all((data || []).map(async (r: any) => {
+        const sourceType = r.action === 'interested' ? 'bookmark' : 'review';
+        let comments: any[] = Array.isArray(r.comments) ? r.comments : [];
+        if (sourceType === 'review') {
+          try {
+            comments = await apiGetReviewComments(r.id);
+          } catch {
+            comments = Array.isArray(r.comments) ? r.comments : [];
           }
-          return {
+        }
+        return {
           id: r.id,
           action: r.action === 'interested' ? 'interested' : 'rated',
           sourceType,
@@ -187,16 +184,35 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
           comments,
         };
       })) as SocialActivity[];
-        setFeedActivities(activities);
-      } catch (error: any) {
-        console.error('HomePage: Error fetching activity feed reviews:', error?.message ?? error);
-        setFeedActivities([]);
-      } finally {
-        setIsFeedLoading(false);
-      }
-    };
-    fetchFeedReviews();
+      setFeedActivities(activities);
+    } catch (error: any) {
+      console.error('HomePage: Error fetching activity feed reviews:', error?.message ?? error);
+      if (!preserveCurrentOnError) setFeedActivities([]);
+    } finally {
+      if (showLoader) setIsFeedLoading(false);
+    }
   }, [user?.uid]);
+
+  useEffect(() => {
+    fetchRecommendations();
+  }, [fetchRecommendations]);
+
+  useEffect(() => {
+    fetchFeedReviews();
+  }, [fetchFeedReviews]);
+
+  const refreshHomeData = useCallback(async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await Promise.all([
+        fetchRecommendations(false),
+        fetchFeedReviews(false, true),
+      ]);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [fetchFeedReviews, fetchRecommendations, isRefreshing]);
 
   const handleFeedReviewLike = async (activityId: string) => {
     const current = feedActivities.find((a) => a.id === activityId);
@@ -407,6 +423,14 @@ export function HomePage({ onNavigate, onOpenMessages, unreadMessageCount, onSig
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={refreshHomeData}
+            tintColor="#ef4444"
+            colors={['#ef4444']}
+          />
+        }
       >
         {/* Header */}
         <View style={styles.header}>
