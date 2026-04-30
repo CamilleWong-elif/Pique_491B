@@ -393,4 +393,29 @@ router.get("/:id", authenticate, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// POST /api/events/:id/report-link — Report a broken external link
+// ---------------------------------------------------------------------------
+router.post("/:id/report-link", authenticate, async (req, res) => {
+  try {
+    const eventId = req.params.id;
+    const eventDoc = await db.collection("events").doc(eventId).get();
+    if (!eventDoc.exists) {
+      return res.status(404).json({ error: "Event not found" });
+    }
+
+    await db.collection("linkReports").add({
+      eventId,
+      reportedBy: req.user.uid,
+      url: eventDoc.data()?.externalUrl || null,
+      createdAt: new Date().toISOString(),
+    });
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("POST /api/events/:id/report-link error:", err);
+    return res.status(500).json({ error: "Failed to submit report" });
+  }
+});
+
 module.exports = router;

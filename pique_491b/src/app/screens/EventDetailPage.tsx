@@ -29,7 +29,7 @@ import {
   Navigation,
   Bookmark,
 } from "lucide-react-native";
-import { apiGetEvent, apiCreateBooking, apiGetReviews, apiToggleLike } from '@/api';
+import { apiGetEvent, apiCreateBooking, apiGetReviews, apiToggleLike, apiReportBrokenLink } from '@/api';
 import { useAuth } from '@/context/AuthContext';
 
 // ----- Types (adjust to your app) -----
@@ -441,6 +441,25 @@ export function EventDetailScreen({
     }
   };
 
+  const handleReportLink = () => {
+    if (!event) return;
+    Alert.alert(
+      'Report Broken Link',
+      'Let us know if the ticket link for this event is not working. We\u2019ll look into it.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Report',
+          onPress: () => {
+            apiReportBrokenLink(event.id)
+              .then(() => Alert.alert('Thank you', 'Your report has been submitted.'))
+              .catch(() => Alert.alert('Error', 'Could not submit report. Please try again.'));
+          },
+        },
+      ],
+    );
+  };
+
   const onHeroScrollEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
     setCurrentSlide(idx);
@@ -826,6 +845,9 @@ export function EventDetailScreen({
               {booking ? 'Booking...' : isExternalEvent ? 'Get Tickets' : 'Book Now'}
             </Text>
           </TouchableOpacity>
+          <TouchableOpacity onPress={handleReportLink} style={styles.reportLinkBtn}>
+            <Text style={styles.reportLinkText}>Report link not working</Text>
+          </TouchableOpacity>
         </View>
       )}
     </View>
@@ -980,6 +1002,15 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   bookText: { color: "#fff", fontSize: 16, fontWeight: "800" },
+  reportLinkBtn: {
+    marginTop: 8,
+    alignItems: "center",
+  },
+  reportLinkText: {
+    fontSize: 12,
+    color: "#6B7280",
+    textDecorationLine: "underline",
+  },
 
   // Gallery styles
   galleryRoot: { flex: 1 },

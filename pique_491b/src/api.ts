@@ -124,6 +124,9 @@ export const apiGetEvents = (params?: {
 export const apiGetEvent = (id: string) =>
   apiFetch(`/api/events/${id}`);
 
+export const apiReportBrokenLink = (eventId: string) =>
+  apiFetch(`/api/events/${eventId}/report-link`, { method: 'POST' });
+
 // ── Recommendations ──
 export const apiGetRecommendations = (limit?: number) =>
   apiFetch(`/api/recommendations?limit=${limit ?? 20}`);
