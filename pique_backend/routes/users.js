@@ -548,7 +548,7 @@ router.delete("/me", authenticate, async (req, res) => {
     const originalData = userSnap.exists ? userSnap.data() : {};
 
     // Stash original data in a separate collection
-    const scheduledDeletionAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const scheduledDeletionAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     await db.collection("pendingDeletion").doc(uid).set({
       originalData,
       email: userEmail,
@@ -578,7 +578,7 @@ router.delete("/me", authenticate, async (req, res) => {
           `Your Pique account has been scheduled for permanent deletion on ${deletionDate}.`,
           "Your public posts will appear as 'Deleted User' in the meantime.",
           "",
-          "If you change your mind, log back into Pique within 30 days to recover your account.",
+          "If you change your mind, log back into Pique within 7 days to recover your account.",
           "",
           "If you did not request this, contact us immediately at piquecsulb@gmail.com.",
           "",
@@ -588,7 +588,7 @@ router.delete("/me", authenticate, async (req, res) => {
           <p>Hi,</p>
           <p>Your Pique account has been scheduled for <strong>permanent deletion on ${deletionDate}</strong>.</p>
           <p>Your public posts will appear as "Deleted User" in the meantime.</p>
-          <p>If you change your mind, <strong>log back into Pique within 30 days</strong> to recover your account.</p>
+          <p>If you change your mind, <strong>log back into Pique within 7 days</strong> to recover your account.</p>
           <p>If you did not request this, contact us immediately at <a href="mailto:piquecsulb@gmail.com">piquecsulb@gmail.com</a>.</p>
           <p>— The Pique Team</p>
         `,
