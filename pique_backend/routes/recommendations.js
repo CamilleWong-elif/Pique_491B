@@ -228,8 +228,33 @@ router.get("/", authenticate, async (req, res) => {
     const matched = scored.filter((e) => e.score > 0);
     const pool = matched.length >= Math.min(5, limit) ? matched : scored;
 
+    // Ensure category diversity: pick at least one top event from each
+    // preferred category before filling the rest by overall score.
+    const pickedIds = new Set();
+    const diverse = [];
+    for (const cat of preferredCategories) {
+      const best = pool.find(
+        (e) =>
+          !pickedIds.has(e.id) &&
+          Array.isArray(e.categories) &&
+          e.categories.includes(cat)
+      );
+      if (best) {
+        diverse.push(best);
+        pickedIds.add(best.id);
+      }
+    }
+    // Fill remaining slots with highest-scored events not yet picked
+    for (const e of pool) {
+      if (diverse.length >= limit) break;
+      if (!pickedIds.has(e.id)) {
+        diverse.push(e);
+        pickedIds.add(e.id);
+      }
+    }
+
     // Strip internal score
-    const results = pool.slice(0, limit).map(({ score, ...rest }) => rest);
+    const results = diverse.slice(0, limit).map(({ score, ...rest }) => rest);
 
     return res.json(results);
   } catch (err) {
